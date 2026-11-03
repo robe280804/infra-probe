@@ -124,7 +124,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; fo
 .row { display: flex; gap: 8px; }
 .row button { flex: 1; }
 
-main { padding: 24px 32px 64px; min-width: 0; max-width: 1400px; width: 100%; }
+main { padding: 24px 32px 64px; min-width: 0; width: 100%; }
 main:focus { outline: none; }
 
 @media (max-width: 860px) {
@@ -180,11 +180,22 @@ h2 { font-size: 15px; margin: 0 0 12px; }
 
 .scroll-body {
   max-height: 320px;
-  overflow: auto;
+  overflow-x: hidden; /* vertical scrolling only: no side scrollbar */
+  overflow-y: auto;
   padding-right: 4px;
 }
 .scroll-body .table-wrap { overflow: visible; }
 .scroll-body th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+/* Content must wrap instead of widening the box. */
+.scroll-body td, .scroll-body th { overflow-wrap: anywhere; }
+.scroll-body .badge { white-space: normal; }
+
+/* Overview: wider boxes, the attention list takes the whole first row. */
+.grid.overview { grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); }
+.grid.overview > .card:first-child { grid-column: 1 / -1; }
+@media (max-width: 520px) {
+  .grid.overview { grid-template-columns: 1fr; }
+}
 
 /* ---------- filters ---------- */
 

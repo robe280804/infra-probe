@@ -118,7 +118,7 @@ export function overview(report) {
     ),
     h(
       "div",
-      { class: "grid" },
+      { class: "grid overview" },
       scrollCard(
         "Containers needing attention",
         withFindings.length === 0
