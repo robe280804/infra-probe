@@ -59,10 +59,13 @@ To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.
   and parses as a compose file (a `services` section). Variables are not
   interpolated, env files are never opened, and environment / build-arg values are
   masked (`${VAR}` references are kept: they are names, not values).
-- **Secrets are never exported.** Environment variable values are redacted;
-  only names are kept. The zip export (`internal/export`) adds a second,
-  collector-independent pass over the whole report: secret-looking keys and
-  labels, password/token flags in commands and credentials in URLs are masked.
+- **Secrets never leave the host.** Collectors redact what they know is secret
+  (environment values: only names are kept). On top of that, a single generic
+  pass, `redact.Tree`, runs wherever a report is serialized: `Report.WriteJSON`
+  (the `scan` command and `/api/report`) and the zip export. It masks
+  secret-looking keys and labels, password/token flags in commands and
+  credentials in URLs, whatever a collector returns, so a new collector cannot
+  forget it. Integration tests check it end to end with a real container.
 - **Everything behind an interface is testable.** The Docker collector talks to
   a small `dockerAPI` interface so unit tests run without a daemon.
 - **`internal/` keeps the API private.** Nothing outside this module may import
@@ -81,6 +84,10 @@ To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.
 | Unit        | next to the code (`*_test.go`) | `make test`                                |
 | Integration | `test/integration`            | `make integration` (needs Docker)          |
 
+The integration tests build the binary and start a real container (labelled as a
+Compose project, with a compose file in a temp dir) hiding generated secrets in its
+environment, command, labels and compose file. `scan`, `export` (full and partial)
+and `serve` (`/api/report`, `/api/export`) must not output any of them.
 ## Report schema
 
 ```json
