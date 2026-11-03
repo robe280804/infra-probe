@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>infra-probe</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>infra-probe</h1>
+    <div class="meta">
+      <span id="generated"></span>
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="errors" hidden></div>
+
+    <section id="host-section">
+      <h2>Host</h2>
+      <dl id="host" class="cards"></dl>
+    </section>
+
+    <nav id="tabs">
+      <button type="button" data-tab="containers" class="active">Containers <span id="count-containers"></span></button>
+      <button type="button" data-tab="images">Images <span id="count-images"></span></button>
+    </nav>
+
+    <input id="filter" type="search" placeholder="Filter..." autocomplete="off">
+
+    <table id="table">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+
+    <section id="detail" hidden>
+      <h2 id="detail-title"></h2>
+      <pre id="detail-body"></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
