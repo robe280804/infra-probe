@@ -31,10 +31,16 @@ is printed if you try). To reach it on a remote server use an SSH tunnel:
 ```sh
 ./bin/infra-probe export            # infra-probe-<host>-<time>.zip
 ./bin/infra-probe export -o ctx.zip
+./bin/infra-probe export -include containers,compose   # only some categories
+./bin/infra-probe export -exclude images,volumes       # everything but these
 ```
 
-The same archive is available from the dashboard ("Export for AI" button,
-`GET /api/export`). It contains a README, a Markdown `SUMMARY.md`, one JSON file
+The same archive is available from the dashboard ("Export for AI" menu, where
+the categories can be ticked, or `GET /api/export?include=containers,compose`).
+Categories: `host`, `daemon`, `compose`, `containers`, `images`, `networks`,
+`volumes`. What is not selected is removed before the archive is built, so it
+appears nowhere in it (not even in `report.json`); the README inside says that
+the export is partial. A full export contains a README, a Markdown `SUMMARY.md`, one JSON file
 per container/image/network (with the full inspect payload) and the full report,
 so the whole server context can be handed to an AI assistant. Secrets are
 removed: environment values, secret-looking labels and keys, password/token flags
