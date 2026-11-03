@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"reflect"
 	"strings"
+	"time"
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
@@ -151,6 +152,8 @@ func newTestCollector(api dockerAPI, newErr error) *Collector {
 		newClient:   func() (dockerAPI, error) { return api, newErr },
 		readFile:    func(string) ([]byte, error) { return nil, fs.ErrNotExist },
 		configPaths: func(bool) []string { return []string{"/etc/docker/daemon.json"} },
+
+		readComposeFile: func(string) ([]byte, time.Time, error) { return nil, time.Time{}, fs.ErrNotExist },
 	}
 }
 

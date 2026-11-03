@@ -413,7 +413,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // order of preference. A daemon reached over the network has its file on
 // another machine, so there is nothing to read.
 func defaultConfigPaths(rootless bool) []string {
-	if host := os.Getenv("DOCKER_HOST"); host != "" && !strings.HasPrefix(host, "unix://") && !strings.HasPrefix(host, "npipe://") {
+	if !daemonIsLocal() {
 		return nil
 	}
 	if runtime.GOOS == "windows" {
