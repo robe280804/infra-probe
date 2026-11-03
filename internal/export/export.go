@@ -34,12 +34,24 @@ var dockerSections = []struct {
 	{"compose", func(m map[string]any) string { return str(m["name"]) }},
 }
 
-// Write encodes r as a zip archive on w.
+// Write encodes r as a zip archive on w, with every category.
 func Write(w io.Writer, r *report.Report) error {
+	return WriteOnly(w, r, nil)
+}
+
+// WriteOnly encodes only the selected categories of r (see Categories). A nil
+// selection means everything. What is not selected is removed before anything
+// is written, so it appears nowhere in the archive, report.json included.
+func WriteOnly(w io.Writer, r *report.Report, selected []string) error {
+	sel, err := newSelection(selected)
+	if err != nil {
+		return err
+	}
 	root, err := sanitizedReport(r)
 	if err != nil {
 		return err
 	}
+	sel.filter(root)
 
 	a := &archive{zw: zip.NewWriter(w), modified: r.GeneratedAt}
 	if a.modified.IsZero() {
@@ -53,6 +65,8 @@ func Write(w io.Writer, r *report.Report) error {
 		GeneratedAt: r.GeneratedAt,
 		Hostname:    hostnameOf(results),
 		Redaction:   redactionNote,
+		Categories:  sel.list(),
+		Partial:     sel.partial,
 		Counts:      map[string]int{},
 		Errors:      stringMap(root["errors"]),
 	}
@@ -81,6 +95,9 @@ func Write(w io.Writer, r *report.Report) error {
 			m.Files = append(m.Files, fileEntry{"docker/daemon.json", "Docker daemon: version, drivers, security options, registries, disk usage and daemon.json (secrets redacted)"})
 		}
 		for _, sec := range dockerSections {
+			if _, selected := dockerRes[sec.name]; !selected {
+				continue
+			}
 			items := objects(dockerRes[sec.name])
 			m.Counts[sec.name] = len(items)
 			paths := assignPaths("docker/"+sec.name, items, sec.label)
@@ -191,6 +208,12 @@ func lastPathElement(p string) string {
 // FileName is the suggested name of the archive, e.g.
 // "infra-probe-web01-20261103T100000Z.zip".
 func FileName(r *report.Report) string {
+	return FileNameFor(r, nil)
+}
+
+// FileNameFor is FileName for a partial export: the categories are appended
+// ("...-containers-images.zip"), or just "partial" when there are many.
+func FileNameFor(r *report.Report, selected []string) string {
 	name := "infra-probe"
 	if root, err := sanitizedReport(r); err == nil {
 		results, _ := root["results"].(map[string]any)
@@ -202,7 +225,15 @@ func FileName(r *report.Report) string {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	return name + "-" + ts.UTC().Format("20060102T150405Z") + ".zip"
+	name += "-" + ts.UTC().Format("20060102T150405Z")
+	if sel, err := newSelection(selected); err == nil && sel.partial {
+		if cats := sel.list(); len(cats) <= 3 {
+			name += "-" + strings.Join(cats, "-")
+		} else {
+			name += "-partial"
+		}
+	}
+	return name + ".zip"
 }
 
 const redactionNote = "Environment variable values, values of secret-looking keys and labels, " +
@@ -214,14 +245,20 @@ type fileEntry struct {
 }
 
 type manifest struct {
-	Tool        string            `json:"tool"`
-	Version     string            `json:"version"`
-	GeneratedAt time.Time         `json:"generated_at"`
-	Hostname    string            `json:"hostname,omitempty"`
-	Redaction   string            `json:"redaction"`
-	Counts      map[string]int    `json:"counts"`
-	Errors      map[string]string `json:"errors,omitempty"`
-	Files       []fileEntry       `json:"files"`
+	Tool        string    `json:"tool"`
+	Version     string    `json:"version"`
+	GeneratedAt time.Time `json:"generated_at"`
+	Hostname    string    `json:"hostname,omitempty"`
+	Redaction   string    `json:"redaction"`
+
+	// Categories are the parts included in the archive; Partial is true when
+	// some were left out on request.
+	Categories []string `json:"categories"`
+	Partial    bool     `json:"partial"`
+
+	Counts map[string]int    `json:"counts"`
+	Errors map[string]string `json:"errors,omitempty"`
+	Files  []fileEntry       `json:"files"`
 }
 
 // sanitizedReport converts the report to generic JSON values and strips

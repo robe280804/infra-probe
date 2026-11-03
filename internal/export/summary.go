@@ -23,6 +23,12 @@ func readme(m *manifest) string {
 		"and volumes.\n" +
 		"It is meant to be given to an AI assistant or a reviewer as complete context of the server.\n\n")
 
+	if m.Partial {
+		fmt.Fprintf(&b, "**Partial export.** Only these categories are included: %s. "+
+			"Everything else was left out on request, so references to it (container, network or volume IDs) may not resolve, "+
+			"and an empty or missing section does not mean the server has none.\n\n", strings.Join(m.Categories, ", "))
+	}
+
 	b.WriteString("## How to read it\n\n")
 	b.WriteString("1. `SUMMARY.md`: overview with tables, start here.\n")
 	b.WriteString("2. `docker/<section>/index.json`: compact list of every item, each with a `file` field.\n")
@@ -81,27 +87,57 @@ func summary(s *summaryData) string {
 
 	dockerRes, ok := s.results["docker"].(map[string]any)
 	if !ok {
-		b.WriteString("No Docker data was collected.\n")
+		// In a partial export the Docker categories may simply not be selected.
+		if !m.Partial {
+			b.WriteString("No Docker data was collected.\n")
+		}
 		return b.String()
 	}
+	has := func(section string) bool { _, present := dockerRes[section]; return present }
 	containers := objects(dockerRes["containers"])
 	images := objects(dockerRes["images"])
 	networks := objects(dockerRes["networks"])
 	volumes := objects(dockerRes["volumes"])
 	unusedVolume := func(v map[string]any) bool { return len(objects(v["containers"])) == 0 }
 
-	fmt.Fprintf(&b, "## Docker at a glance\n\n- Containers: %d (%d running)\n- Images: %d (%d unused)\n- Networks: %d\n- Volumes: %d (%d unused)\n\n",
-		len(containers), countWhere(containers, func(c map[string]any) bool { return str(c["state"]) == "running" }),
-		len(images), countWhere(images, func(i map[string]any) bool { return num(i["containers"]) == 0 }),
-		len(networks), len(volumes), countWhere(volumes, unusedVolume))
+	// Only the sections that are part of the export: a count of something that
+	// was left out would read as "none".
+	var glance []string
+	if has("containers") {
+		glance = append(glance, fmt.Sprintf("- Containers: %d (%d running)", len(containers),
+			countWhere(containers, func(c map[string]any) bool { return str(c["state"]) == "running" })))
+	}
+	if has("images") {
+		glance = append(glance, fmt.Sprintf("- Images: %d (%d unused)", len(images),
+			countWhere(images, func(i map[string]any) bool { return num(i["containers"]) == 0 })))
+	}
+	if has("networks") {
+		glance = append(glance, fmt.Sprintf("- Networks: %d", len(networks)))
+	}
+	if has("volumes") {
+		glance = append(glance, fmt.Sprintf("- Volumes: %d (%d unused)", len(volumes), countWhere(volumes, unusedVolume)))
+	}
+	if len(glance) > 0 {
+		b.WriteString("## Docker at a glance\n\n" + strings.Join(glance, "\n") + "\n\n")
+	}
 
 	writeDaemon(&b, mapAt(dockerRes, "daemon"))
-	writeCompose(&b, objects(dockerRes["compose"]), containers, s.files["compose"])
-	writeContainers(&b, containers, s.files["containers"])
-	writeMounts(&b, containers)
-	writeImages(&b, images, s.files["images"])
-	writeNetworks(&b, networks, s.files["networks"])
-	writeVolumes(&b, volumes, s.files["volumes"])
+	if has("compose") {
+		writeCompose(&b, objects(dockerRes["compose"]), containers, s.files["compose"])
+	}
+	if has("containers") {
+		writeContainers(&b, containers, s.files["containers"])
+		writeMounts(&b, containers)
+	}
+	if has("images") {
+		writeImages(&b, images, s.files["images"])
+	}
+	if has("networks") {
+		writeNetworks(&b, networks, s.files["networks"])
+	}
+	if has("volumes") {
+		writeVolumes(&b, volumes, s.files["volumes"])
+	}
 	return b.String()
 }
 
