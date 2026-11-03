@@ -13,3 +13,6 @@ coverage.out
 
 # Local reports produced by the probe
 /report*.json
+
+# Local planning notes, not tracked
+/ROADMAP.md
