@@ -79,6 +79,29 @@ func sampleReport() *report.Report {
 					map[string]any{"id": "nnnnnnnnnnnn", "name": "backend", "driver": "bridge",
 						"containers": []any{map[string]any{"container_id": "aaaaaaaaaaaa", "name": "db"}}},
 				},
+				"compose": []any{
+					map[string]any{"name": "app", "state": "partial", "working_dir": "/srv/app",
+						"config_files":               []any{"/srv/app/docker-compose.yml", "/srv/app/docker-compose.prod.yml"},
+						"config_changed_since_start": true,
+						"files": []any{
+							// A Windows path: the daemon may not run on the machine doing the export.
+							map[string]any{"path": `C:\srv\app\docker-compose.yml`, "status": "ok",
+								"content": map[string]any{
+									"services": map[string]any{"db": map[string]any{
+										"image":       "postgres:16",
+										"environment": map[string]any{"POSTGRES_USER": "${DB_USER}", "POSTGRES_PASSWORD": "<redacted>"},
+										"command":     "run --api-key=composeleak",
+									}},
+									"db_password": "composeleak2", // a second pass must still catch what slipped through
+								}},
+							map[string]any{"path": "/srv/app/docker-compose.prod.yml", "status": "missing", "error": "the file no longer exists"},
+						},
+						"services": []any{map[string]any{"name": "db", "running": 1,
+							"containers": []any{map[string]any{"id": "aaaaaaaaaaaa", "name": "db"}}}},
+						"networks": []any{map[string]any{"name": "backend"}}, "volumes": []any{map[string]any{"name": "pgdata"}}},
+					map[string]any{"name": "leftover", "state": "down", "config_files": []any{}, "services": []any{},
+						"networks": []any{}, "volumes": []any{map[string]any{"name": "orphan"}}},
+				},
 				"volumes": []any{
 					map[string]any{"name": "pgdata", "driver": "local", "size": 4096, "anonymous": false,
 						"labels":     map[string]any{"com.docker.compose.project": "app"},
@@ -133,7 +156,7 @@ func TestWrite_Layout(t *testing.T) {
 		"docker/containers/index.json", "docker/containers/db.json", "docker/containers/db-bbbbbbbbbbbb.json",
 		"docker/images/index.json", "docker/images/secret-app_1.0.json", "docker/images/fedcba987654.json",
 		"docker/networks/index.json", "docker/networks/backend.json",
-		"docker/daemon.json", "docker/volumes/index.json", "docker/volumes/pgdata.json", "docker/volumes/orphan.json",
+		"docker/daemon.json", "docker/compose-files/app/docker-compose.yml", "docker/compose/index.json", "docker/compose/app.json", "docker/compose/leftover.json", "docker/volumes/index.json", "docker/volumes/pgdata.json", "docker/volumes/orphan.json",
 	}
 	for _, name := range want {
 		if _, ok := files[name]; !ok {
@@ -173,7 +196,7 @@ func TestWrite_IndexHasNoInspectAndPointsToFile(t *testing.T) {
 func TestWrite_NoSecretLeaks(t *testing.T) {
 	files := buildZip(t, sampleReport())
 
-	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret", "nfspass", "daemontok", "daemonproxypw"}
+	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret", "nfspass", "daemontok", "daemonproxypw", "composeleak"}
 	for name, body := range files {
 		for _, s := range secrets {
 			if strings.Contains(body, s) {
@@ -238,6 +261,65 @@ func TestWrite_DaemonSummary(t *testing.T) {
 	}
 	if !strings.Contains(files["docker/daemon.json"], `"splunk-token": "<redacted>"`) {
 		t.Error("daemon.json file does not keep the redacted option")
+	}
+}
+
+func TestWrite_ComposeSummary(t *testing.T) {
+	sum := buildZip(t, sampleReport())["SUMMARY.md"]
+
+	for _, want := range []string{
+		"## Compose projects",
+		"| app | partial | db (1/1) | /srv/app | /srv/app/docker-compose.yml, /srv/app/docker-compose.prod.yml | backend | pgdata | `docker/compose/app.json` |",
+		"| leftover | down |",
+		// The second sample container (bbbbbbbbbbbb) belongs to no project.
+		"Containers outside Compose",
+	} {
+		if !strings.Contains(sum, want) {
+			t.Errorf("SUMMARY.md lacks %q", want)
+		}
+	}
+}
+
+func TestWrite_ComposeFiles(t *testing.T) {
+	files := buildZip(t, sampleReport())
+
+	yml := files["docker/compose-files/app/docker-compose.yml"]
+	for _, want := range []string{
+		"# Sanitized copy",
+		`# Source on the server: C:\srv\app\docker-compose.yml`,
+		"image: postgres:16",
+		"POSTGRES_USER: ${DB_USER}",
+		"POSTGRES_PASSWORD: <redacted>",
+	} {
+		if !strings.Contains(yml, want) {
+			t.Errorf("compose file lacks %q:\n%s", want, yml)
+		}
+	}
+	if _, ok := files["docker/compose-files/app/docker-compose.prod.yml"]; ok {
+		t.Error("a missing file must not be written")
+	}
+
+	sum := files["SUMMARY.md"]
+	for _, want := range []string{
+		"modified after the containers were created (what runs may differ from the file): app.",
+		"- app: /srv/app/docker-compose.prod.yml (missing)",
+	} {
+		if !strings.Contains(sum, want) {
+			t.Errorf("SUMMARY.md lacks %q", want)
+		}
+	}
+}
+
+func TestLastPathElement(t *testing.T) {
+	for in, want := range map[string]string{
+		`C:\srv\app\compose.yml`: "compose.yml",
+		"/srv/app/compose.yml":   "compose.yml",
+		"compose.yml":            "compose.yml",
+		"":                       "",
+	} {
+		if got := lastPathElement(in); got != want {
+			t.Errorf("lastPathElement(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
