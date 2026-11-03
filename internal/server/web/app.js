@@ -1,10 +1,13 @@
 // Application shell: routing, sidebar, data loading, auto refresh.
 
-import { h, fmtDate } from "./components.js";
-import {
-  containersOf, imagesOf, networksOf, overview, containerList, containerDetail, imageList, imageDetail,
-  networkList, networkDetail, defaultContainerFilters, defaultImageFilters, defaultNetworkFilters,
-} from "./views.js";
+import { h } from "./lib/dom.js";
+import { fmtDate } from "./lib/format.js";
+import { containersOf, imagesOf, networksOf } from "./data/report.js";
+import { overview } from "./views/overview.js";
+import { containerList, defaultContainerFilters } from "./views/containers.js";
+import { containerDetail } from "./views/container-detail.js";
+import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
+import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
 
 const MAX_SAMPLES = 120;
 

@@ -14,6 +14,32 @@ test/integration         tests needing a real Docker daemon / compiled binary
 deployments/systemd      hardened unit + timer for periodic scans
 ```
 
+## Dashboard UI (`internal/server/web`)
+
+Plain ES modules, no build step, embedded in the binary with `go:embed`.
+
+```
+app.js            shell: routing, sidebar, loading, auto refresh
+lib/              generic building blocks, knowing nothing about Docker
+  dom.js            h()/svg() element builders (textContent only, never HTML strings)
+  format.js         bytes, dates, durations
+  ui.js             badge, card, tile, table, key/value list
+  filters.js        filter bar bound to a mutable filters object
+  charts.js         usage meters, ranked bars, time series line chart
+data/             knowledge about the report
+  report.js         accessors over the report JSON and page links
+  findings.js       security/configuration facts derived from inspect data
+views/            one file per page
+  shared.js         page frame, links, "not found"
+  overview.js  containers.js  container-detail.js  images.js  networks.js
+```
+
+Dependencies only point downwards: `views` use `data` and `lib`; `data` and `lib`
+never import a view. Report data is untrusted, so it only reaches the page through
+`textContent`; a Go test fails if any script uses `innerHTML` and similar sinks.
+
+To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.js`.
+
 ## Design rules
 
 - **Collectors are independent.** A failing collector is recorded under
