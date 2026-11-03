@@ -1,3 +1,6 @@
+// Command infra-probe inspects the server it runs on (Docker daemon, containers,
+// images, networks, volumes, Compose projects) and reports what it finds, as
+// JSON, as a web dashboard or as a zip archive for an AI assistant.
 package main
 
 import (

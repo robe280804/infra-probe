@@ -101,6 +101,7 @@ type dockerAPI interface {
 	Close() error
 }
 
+// Collector gathers the state of the Docker daemon reachable from this machine.
 type Collector struct {
 	// newClient builds the Docker client; replaced in tests.
 	newClient func() (dockerAPI, error)
@@ -116,6 +117,8 @@ type Collector struct {
 	readComposeFile func(path string) ([]byte, time.Time, error)
 }
 
+// New returns a Collector using the daemon configured in the environment
+// (DOCKER_HOST), or the default local socket.
 func New() *Collector {
 	return &Collector{
 		newClient:   func() (dockerAPI, error) { return client.New(client.FromEnv) },
@@ -126,6 +129,7 @@ func New() *Collector {
 	}
 }
 
+// Name is the key of the collector in the report.
 func (c *Collector) Name() string { return "docker" }
 
 // Collect gathers every container (running or not), local image, network and

@@ -315,7 +315,7 @@ func sanitizeMapping(m map[string]any, path []string) any {
 		case k == "content" && hasKey(path, "configs"):
 			// Inline config content can hold anything, including secrets.
 			out[k] = maskLiteral(val)
-		case labelSecret.MatchString(k) && !keysKeptAsIs[k] && !(len(path) == 1 && namedSections[path[0]]):
+		case labelSecret.MatchString(k) && !keysKeptAsIs[k] && (len(path) != 1 || !namedSections[path[0]]):
 			out[k] = maskSecretValue(val)
 		default:
 			out[k] = sanitizeCompose(val, sub)

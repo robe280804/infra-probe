@@ -10,6 +10,8 @@ import (
 	"github.com/netseven/infra-probe/internal/collector"
 )
 
+// Report is the output of a scan: what every collector returned, and what
+// went wrong.
 type Report struct {
 	Version     string            `json:"version"`
 	GeneratedAt time.Time         `json:"generated_at"`
@@ -39,6 +41,7 @@ func Build(ctx context.Context, version string, collectors []collector.Collector
 	return r
 }
 
+// WriteJSON writes the report as indented JSON.
 func (r *Report) WriteJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

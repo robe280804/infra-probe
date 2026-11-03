@@ -9,8 +9,8 @@ import (
 	"io/fs"
 	"reflect"
 	"strings"
-	"time"
 	"testing"
+	"time"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"

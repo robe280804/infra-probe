@@ -35,7 +35,7 @@ func newHandler(calls *int) http.Handler {
 func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil))
 	return rec
 }
 
@@ -246,7 +246,7 @@ func TestOnlyGETIsAllowed(t *testing.T) {
 
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(method, "/api/report", nil))
+		h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), method, "/api/report", nil))
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s status = %d, want 405", method, rec.Code)
 		}

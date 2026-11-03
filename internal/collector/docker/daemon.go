@@ -43,7 +43,6 @@ type DaemonVersion struct {
 	OS            string `json:"os"`
 	Arch          string `json:"arch"`
 	Platform      string `json:"platform,omitempty"`
-	Experimental  bool   `json:"experimental"`
 
 	// Components are the engine, containerd, runc, docker-init... each with
 	// its version and build details (git commit, Go version, build time).
@@ -245,7 +244,6 @@ func versionOf(v client.ServerVersionResult) *DaemonVersion {
 		OS:            v.Os,
 		Arch:          v.Arch,
 		Platform:      v.Platform.Name,
-		Experimental:  v.Experimental,
 		Components:    []DaemonComponent{},
 	}
 	for _, comp := range v.Components {

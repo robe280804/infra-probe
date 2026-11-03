@@ -166,7 +166,7 @@ func TestConfiguredMemoryLimit(t *testing.T) {
 }
 
 func TestCollectStats_OnlyRunningContainers(t *testing.T) {
-	api := &fakeAPI{statsFn: func(id string) (container.StatsResponse, error) {
+	api := &fakeAPI{statsFn: func(_ string) (container.StatsResponse, error) {
 		return container.StatsResponse{MemoryStats: container.MemoryStats{Usage: 42}}, nil
 	}}
 	containers := []Container{
