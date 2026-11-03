@@ -67,9 +67,26 @@ type Result struct {
 	Images     []Image     `json:"images"`
 }
 
-type Collector struct{}
+// dockerAPI is the subset of the Docker client used by the collector.
+// *client.Client satisfies it; tests provide a fake.
+type dockerAPI interface {
+	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
+	ContainerInspect(ctx context.Context, containerID string, options client.ContainerInspectOptions) (client.ContainerInspectResult, error)
+	ImageList(ctx context.Context, options client.ImageListOptions) (client.ImageListResult, error)
+	ImageInspect(ctx context.Context, imageID string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	Close() error
+}
 
-func New() *Collector { return &Collector{} }
+type Collector struct {
+	// newClient builds the Docker client; replaced in tests.
+	newClient func() (dockerAPI, error)
+}
+
+func New() *Collector {
+	return &Collector{
+		newClient: func() (dockerAPI, error) { return client.New(client.FromEnv) },
+	}
+}
 
 func (c *Collector) Name() string { return "docker" }
 
@@ -77,7 +94,7 @@ func (c *Collector) Name() string { return "docker" }
 // known to the daemon. The daemon address comes from the environment
 // (DOCKER_HOST), falling back to the default local socket.
 func (c *Collector) Collect(ctx context.Context) (any, error) {
-	apiClient, err := client.New(client.FromEnv)
+	apiClient, err := c.newClient()
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
@@ -94,7 +111,7 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 	return Result{Containers: containers, Images: images}, nil
 }
 
-func collectContainers(ctx context.Context, apiClient *client.Client) ([]Container, error) {
+func collectContainers(ctx context.Context, apiClient dockerAPI) ([]Container, error) {
 	list, err := apiClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
@@ -127,7 +144,7 @@ func collectContainers(ctx context.Context, apiClient *client.Client) ([]Contain
 	return containers, nil
 }
 
-func collectImages(ctx context.Context, apiClient *client.Client) ([]Image, error) {
+func collectImages(ctx context.Context, apiClient dockerAPI) ([]Image, error) {
 	// SharedSize is required for the daemon to fill the per-image container
 	// count; without it the value is reported as -1.
 	list, err := apiClient.ImageList(ctx, client.ImageListOptions{All: false, SharedSize: true})
