@@ -1,189 +1,153 @@
-"use strict";
+// Application shell: routing, sidebar, data loading, auto refresh.
 
-// All values coming from the report (container names, labels, image tags...)
-// are untrusted. They are only ever written with textContent, never innerHTML.
+import { h, fmtDate } from "./components.js";
+import {
+  containersOf, imagesOf, overview, containerList, containerDetail, imageList, imageDetail,
+  defaultContainerFilters, defaultImageFilters,
+} from "./views.js";
 
-const state = { report: null, tab: "containers", filter: "", selected: null };
+const MAX_SAMPLES = 120;
 
-const el = (id) => document.getElementById(id);
-
-function node(tag, text, className) {
-  const n = document.createElement(tag);
-  if (text !== undefined && text !== null) n.textContent = text;
-  if (className) n.className = className;
-  return n;
-}
-
-function badge(text, cls) {
-  return node("span", text, "badge " + (cls || ""));
-}
-
-function formatDate(iso) {
-  const d = new Date(iso);
-  return isNaN(d) ? "" : d.toLocaleString();
-}
-
-function formatSize(bytes) {
-  if (typeof bytes !== "number") return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
-  return bytes.toFixed(i === 0 ? 0 : 1) + " " + units[i];
-}
-
-// Column definitions: each cell is built as a DOM node.
-const columns = {
-  containers: [
-    { title: "Name", cell: (c) => node("span", c.name) },
-    { title: "Image", cell: (c) => node("span", c.image) },
-    { title: "State", cell: (c) => badge(c.state, c.state) },
-    { title: "Status", cell: (c) => node("span", c.status) },
-    { title: "ID", cell: (c) => node("span", c.id, "mono") },
-    { title: "Created", cell: (c) => node("span", formatDate(c.created_at)) },
-  ],
-  images: [
-    { title: "Tags", cell: (i) => node("span", (i.repo_tags || []).join(", ") || "<none>") },
-    { title: "Size", cell: (i) => node("span", formatSize(i.size)) },
-    { title: "Used by", cell: (i) => node("span", String(i.containers)) },
-    {
-      title: "Flags",
-      cell: (i) => {
-        const s = node("span");
-        if (i.dangling) s.appendChild(badge("dangling", "dangling"));
-        if (i.containers === 0) s.appendChild(badge("unused", "dangling"));
-        return s;
-      },
-    },
-    { title: "ID", cell: (i) => node("span", (i.id || "").replace("sha256:", "").slice(0, 12), "mono") },
-    { title: "Created", cell: (i) => node("span", formatDate(i.created_at)) },
-  ],
+const state = {
+  report: null,
+  error: null,
+  // Filters live here, not in the views, so they survive refreshes and navigation.
+  filters: { containers: defaultContainerFilters(), images: defaultImageFilters() },
+  history: new Map(), // container id -> [{t, mem, cpu}] collected while the page is open
+  timer: null,
 };
 
-function items() {
-  const docker = (state.report && state.report.results && state.report.results.docker) || {};
-  return docker[state.tab] || [];
-}
+const $ = (id) => document.getElementById(id);
 
-function matches(item, filter) {
-  if (!filter) return true;
-  // Filter on the visible summary only, not on the full inspect payload.
-  const { inspect, ...summary } = item;
-  return JSON.stringify(summary).toLowerCase().includes(filter);
-}
+// ---------- history (client-side time series) ----------
 
-function renderHost() {
-  const host = (state.report.results && state.report.results.host) || {};
-  const dl = el("host");
-  dl.replaceChildren();
-  for (const [k, v] of Object.entries(host)) {
-    const box = node("div");
-    box.appendChild(node("dt", k));
-    box.appendChild(node("dd", String(v)));
-    dl.appendChild(box);
+function recordHistory(report) {
+  for (const c of containersOf(report)) {
+    if (!c.stats) continue;
+    const t = Date.parse(c.stats.sampled_at) || Date.now();
+    const samples = state.history.get(c.id) ?? [];
+    // The server caches reports: skip a sample we already have.
+    if (samples.length && samples[samples.length - 1].t === t) continue;
+    samples.push({ t, mem: c.stats.memory_usage, cpu: c.stats.cpu_percent });
+    state.history.set(c.id, samples.slice(-MAX_SAMPLES));
   }
 }
 
-function renderErrors() {
-  const box = el("errors");
-  const errors = state.report.errors || {};
-  const entries = Object.entries(errors);
-  box.hidden = entries.length === 0;
-  box.replaceChildren();
-  for (const [name, msg] of entries) {
-    box.appendChild(node("div", name + ": " + msg));
-  }
+// ---------- routing ----------
+
+function parseRoute() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  return { section: parts[0] || "overview", id: parts[1] };
 }
 
-function renderTable() {
-  const cols = columns[state.tab];
-  const head = el("table").tHead;
-  const body = el("table").tBodies[0];
+const NAV = [
+  { section: "overview", label: "Overview" },
+  { section: "containers", label: "Containers", count: (r) => containersOf(r).length },
+  { section: "images", label: "Images", count: (r) => imagesOf(r).length },
+  { label: "Networks", soon: true },
+  { label: "Volumes", soon: true },
+  { label: "Security rules", soon: true },
+];
 
-  const tr = document.createElement("tr");
-  for (const c of cols) tr.appendChild(node("th", c.title));
-  head.replaceChildren(tr);
+function renderNav(route) {
+  const nav = $("nav");
+  nav.replaceChildren(
+    ...NAV.map((item) => {
+      if (item.soon) {
+        return h("span", { class: "nav-disabled", "aria-disabled": "true" }, item.label, h("span", { class: "nav-soon", text: "soon" }));
+      }
+      const count = state.report && item.count ? item.count(state.report) : null;
+      return h(
+        "a",
+        { href: `#/${item.section}`, "aria-current": route.section === item.section ? "page" : null },
+        item.label,
+        count !== null ? h("span", { class: "nav-count", text: String(count) }) : null,
+      );
+    }),
+  );
+}
 
-  const rows = items().filter((it) => matches(it, state.filter));
-  body.replaceChildren();
+function renderView(route) {
+  const view = $("view");
 
-  if (rows.length === 0) {
-    const row = document.createElement("tr");
-    const td = node("td", "Nothing to show", "empty");
-    td.colSpan = cols.length;
-    row.appendChild(td);
-    body.appendChild(row);
+  if (!state.report) {
+    view.replaceChildren(
+      state.error
+        ? h("div", { class: "banner", text: `Cannot load the report: ${state.error}` })
+        : h("p", { class: "muted", text: "Loading…" }),
+    );
     return;
   }
 
-  for (const it of rows) {
-    const row = document.createElement("tr");
-    if (state.selected === it.id) row.className = "selected";
-    for (const c of cols) {
-      const td = document.createElement("td");
-      td.appendChild(c.cell(it));
-      row.appendChild(td);
-    }
-    row.addEventListener("click", () => showDetail(it));
-    body.appendChild(row);
+  let node;
+  switch (route.section) {
+    case "containers":
+      node = route.id ? containerDetail(state.report, route.id, state.history.get(route.id)) : containerList(state.report, state.filters.containers);
+      break;
+    case "images":
+      node = route.id ? imageDetail(state.report, route.id) : imageList(state.report, state.filters.images);
+      break;
+    default:
+      node = overview(state.report);
   }
+
+  const errors = Object.entries(state.report.errors ?? {});
+  view.replaceChildren(
+    ...(errors.length ? [h("div", { class: "banner" }, errors.map(([name, msg]) => h("div", { text: `${name}: ${msg}` })))] : []),
+    node,
+  );
 }
 
-function showDetail(item) {
-  state.selected = item.id;
-  const title = item.name || (item.repo_tags || [])[0] || item.id;
-  el("detail-title").textContent = title;
-  el("detail-body").textContent = JSON.stringify(item.inspect || item, null, 2);
-  el("detail").hidden = false;
-  renderTable();
+function render({ keepFocus = false } = {}) {
+  const route = parseRoute();
+  renderNav(route);
+  // Do not rebuild the page under the user's cursor while they use a filter.
+  if (keepFocus && document.activeElement && document.activeElement.closest(".filters")) return;
+  renderView(route);
 }
 
-function render() {
-  if (!state.report) return;
-  const docker = (state.report.results && state.report.results.docker) || {};
-  el("generated").textContent = "Updated " + formatDate(state.report.generated_at);
-  el("count-containers").textContent = "(" + (docker.containers || []).length + ")";
-  el("count-images").textContent = "(" + (docker.images || []).length + ")";
-  renderHost();
-  renderErrors();
-  renderTable();
-}
+// ---------- data ----------
 
-async function load() {
-  const button = el("refresh");
+async function load({ auto = false } = {}) {
+  const button = $("refresh");
   button.disabled = true;
   try {
     const res = await fetch("/api/report", { cache: "no-store" });
-    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.report = await res.json();
-    render();
+    state.error = null;
+    recordHistory(state.report);
+    $("updated").textContent = `Updated ${fmtDate(state.report.generated_at)}`;
   } catch (err) {
-    const box = el("errors");
-    box.hidden = false;
-    box.textContent = "Cannot load report: " + err.message;
+    state.error = err.message;
   } finally {
     button.disabled = false;
   }
+  render({ keepFocus: auto });
 }
 
-el("refresh").addEventListener("click", load);
+function schedule() {
+  clearInterval(state.timer);
+  const ms = Number($("interval").value);
+  if (ms > 0) state.timer = setInterval(() => load({ auto: true }), ms);
+}
 
-el("filter").addEventListener("input", (e) => {
-  state.filter = e.target.value.trim().toLowerCase();
-  renderTable();
+// ---------- wiring ----------
+
+window.addEventListener("hashchange", () => {
+  render();
+  $("view").focus();
+  window.scrollTo(0, 0);
 });
 
-el("tabs").addEventListener("click", (e) => {
-  // The click may land on the count <span> inside the button.
-  const button = e.target.closest("button");
-  const tab = button && button.dataset.tab;
-  if (!tab) return;
-  state.tab = tab;
-  state.selected = null;
-  el("detail").hidden = true;
-  for (const b of el("tabs").querySelectorAll("button")) {
-    b.classList.toggle("active", b.dataset.tab === tab);
-  }
-  renderTable();
+$("refresh").addEventListener("click", () => load());
+$("interval").addEventListener("change", schedule);
+$("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark";
 });
 
+render();
 load();
+schedule();

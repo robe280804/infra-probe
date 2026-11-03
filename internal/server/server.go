@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"sync"
@@ -19,6 +20,15 @@ import (
 
 //go:embed web
 var webFS embed.FS
+
+func init() {
+	// The Content-Type of static files comes from the OS mime database, which
+	// on Windows can map .js to text/plain. Combined with "nosniff" the browser
+	// would then refuse to run the scripts, so pin the types we serve.
+	_ = mime.AddExtensionType(".js", "text/javascript; charset=utf-8")
+	_ = mime.AddExtensionType(".css", "text/css; charset=utf-8")
+	_ = mime.AddExtensionType(".svg", "image/svg+xml")
+}
 
 // ScanFunc runs a fresh scan.
 type ScanFunc func(ctx context.Context) *report.Report
@@ -96,8 +106,8 @@ func (s *Server) report(ctx context.Context) *report.Report {
 	return s.cached
 }
 
-// securityHeaders adds defensive headers. The CSP forbids inline scripts and
-// any external resource: the UI is fully self-contained.
+// securityHeaders adds defensive headers. The CSP forbids inline scripts,
+// inline styles and any external resource: the UI is fully self-contained.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

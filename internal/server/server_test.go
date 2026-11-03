@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +25,10 @@ func countingScan(calls *int) ScanFunc {
 	}
 }
 
+func newHandler(calls *int) http.Handler {
+	return New(countingScan(calls), time.Second, time.Second).Handler()
+}
+
 func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -33,7 +38,7 @@ func get(t *testing.T, h http.Handler, path string) *httptest.ResponseRecorder {
 
 func TestHealthz(t *testing.T) {
 	var calls int
-	rec := get(t, New(countingScan(&calls), time.Second, time.Second).Handler(), "/healthz")
+	rec := get(t, newHandler(&calls), "/healthz")
 
 	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
 		t.Errorf("got %d %q", rec.Code, rec.Body.String())
@@ -45,7 +50,7 @@ func TestHealthz(t *testing.T) {
 
 func TestAPIReport(t *testing.T) {
 	var calls int
-	rec := get(t, New(countingScan(&calls), time.Second, time.Second).Handler(), "/api/report")
+	rec := get(t, newHandler(&calls), "/api/report")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -115,7 +120,7 @@ func TestScanReceivesTimeout(t *testing.T) {
 
 func TestOnlyGETIsAllowed(t *testing.T) {
 	var calls int
-	h := New(countingScan(&calls), time.Second, time.Second).Handler()
+	h := newHandler(&calls)
 
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 		rec := httptest.NewRecorder()
@@ -131,15 +136,18 @@ func TestOnlyGETIsAllowed(t *testing.T) {
 
 func TestEmbeddedUIIsServed(t *testing.T) {
 	var calls int
-	h := New(countingScan(&calls), time.Second, time.Second).Handler()
+	h := newHandler(&calls)
 
 	tests := []struct {
-		path     string
-		contains string
+		path        string
+		contains    string
+		contentType string
 	}{
-		{"/", "infra-probe"},
-		{"/app.js", "api/report"},
-		{"/style.css", "--bg"},
+		{"/", "infra-probe", "text/html"},
+		{"/app.js", "api/report", "text/javascript"},
+		{"/views.js", "export", "text/javascript"},
+		{"/components.js", "export", "text/javascript"},
+		{"/style.css", "--bg", "text/css"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -150,13 +158,17 @@ func TestEmbeddedUIIsServed(t *testing.T) {
 			if !strings.Contains(rec.Body.String(), tt.contains) {
 				t.Errorf("body does not contain %q", tt.contains)
 			}
+			// With "nosniff" a wrong type makes the browser refuse to run the script.
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, tt.contentType) {
+				t.Errorf("Content-Type = %q, want prefix %q", ct, tt.contentType)
+			}
 		})
 	}
 }
 
 func TestUnknownPathIs404(t *testing.T) {
 	var calls int
-	rec := get(t, New(countingScan(&calls), time.Second, time.Second).Handler(), "/nope")
+	rec := get(t, newHandler(&calls), "/nope")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
@@ -164,7 +176,7 @@ func TestUnknownPathIs404(t *testing.T) {
 
 func TestSecurityHeaders(t *testing.T) {
 	var calls int
-	h := New(countingScan(&calls), time.Second, time.Second).Handler()
+	h := newHandler(&calls)
 
 	for _, path := range []string{"/", "/api/report", "/healthz"} {
 		rec := get(t, h, path)
@@ -180,14 +192,56 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
-func TestUIDoesNotUseInnerHTML(t *testing.T) {
-	// Report data is untrusted (container names, labels...). The UI must only
-	// use textContent. This guards against reintroducing an XSS sink.
-	var calls int
-	rec := get(t, New(countingScan(&calls), time.Second, time.Second).Handler(), "/app.js")
+// TestUIHasNoUnsafeSinks guards the two rules the UI must keep. Report data is
+// untrusted (container names, labels...), so it may only reach the page through
+// textContent, and the CSP forbids inline styles and scripts.
+func TestUIHasNoUnsafeSinks(t *testing.T) {
+	forbidden := []string{
+		"innerHTML",
+		"outerHTML",
+		"insertAdjacentHTML",
+		"document.write",
+		"eval(",
+		"new Function",
+		`setAttribute("style"`,
+		"setAttribute('style'",
+	}
 
-	if strings.Contains(rec.Body.String(), "innerHTML") {
-		t.Error("app.js must not use innerHTML")
+	err := fs.WalkDir(webFS, "web", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if !strings.HasSuffix(path, ".js") {
+			return nil
+		}
+		src, err := fs.ReadFile(webFS, path)
+		if err != nil {
+			return err
+		}
+		for _, bad := range forbidden {
+			if strings.Contains(string(src), bad) {
+				t.Errorf("%s uses forbidden construct %q", path, bad)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIndexHasNoInlineScriptOrStyle(t *testing.T) {
+	var calls int
+	body := get(t, newHandler(&calls), "/").Body.String()
+
+	if strings.Contains(body, "style=") {
+		t.Error("index.html must not use inline style attributes (blocked by the CSP)")
+	}
+	for _, tag := range strings.Split(body, "<script")[1:] {
+		head, _, _ := strings.Cut(tag, ">")
+		if !strings.Contains(head, "src=") {
+			t.Error("index.html must not contain inline scripts (blocked by the CSP)")
+		}
 	}
 }
 

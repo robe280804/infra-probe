@@ -7,40 +7,32 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>infra-probe</h1>
-    <div class="meta">
-      <span id="generated"></span>
-      <button id="refresh" type="button">Refresh</button>
-    </div>
-  </header>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">infra-probe</div>
+      <nav id="nav" aria-label="Main"></nav>
 
-  <main>
-    <div id="errors" hidden></div>
+      <div class="sidebar-foot">
+        <div id="updated" class="muted" aria-live="polite"></div>
+        <label class="field">
+          <span>Auto refresh</span>
+          <select id="interval">
+            <option value="0">Off</option>
+            <option value="5000">5 s</option>
+            <option value="10000" selected>10 s</option>
+            <option value="30000">30 s</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="refresh" type="button">Refresh now</button>
+          <button id="theme" type="button" aria-label="Toggle light/dark theme">Theme</button>
+        </div>
+      </div>
+    </aside>
 
-    <section id="host-section">
-      <h2>Host</h2>
-      <dl id="host" class="cards"></dl>
-    </section>
+    <main id="view" tabindex="-1"></main>
+  </div>
 
-    <nav id="tabs">
-      <button type="button" data-tab="containers" class="active">Containers <span id="count-containers"></span></button>
-      <button type="button" data-tab="images">Images <span id="count-images"></span></button>
-    </nav>
-
-    <input id="filter" type="search" placeholder="Filter..." autocomplete="off">
-
-    <table id="table">
-      <thead></thead>
-      <tbody></tbody>
-    </table>
-
-    <section id="detail" hidden>
-      <h2 id="detail-title"></h2>
-      <pre id="detail-body"></pre>
-    </section>
-  </main>
-
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
