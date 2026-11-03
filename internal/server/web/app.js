@@ -8,6 +8,7 @@ import { containerList, defaultContainerFilters } from "./views/containers.js";
 import { containerDetail } from "./views/container-detail.js";
 import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
 import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
+import { daemonPage } from "./views/daemon.js";
 import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
 const MAX_SAMPLES = 120;
@@ -50,6 +51,7 @@ const NAV = [
   { section: "images", label: "Images", count: (r) => imagesOf(r).length },
   { section: "networks", label: "Networks", count: (r) => networksOf(r).length },
   { section: "volumes", label: "Volumes", count: (r) => volumesOf(r).length },
+  { section: "daemon", label: "Docker daemon" },
   { label: "Security rules", soon: true },
 ];
 
@@ -93,6 +95,9 @@ function renderView(route) {
       break;
     case "networks":
       node = route.id ? networkDetail(state.report, route.id) : networkList(state.report, state.filters.networks);
+      break;
+    case "daemon":
+      node = daemonPage(state.report);
       break;
     case "volumes":
       node = route.id ? volumeDetail(state.report, route.id) : volumeList(state.report, state.filters.volumes);

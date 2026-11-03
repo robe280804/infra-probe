@@ -4,6 +4,7 @@ export const dockerOf = (report) => report?.results?.docker ?? { containers: [],
 export const containersOf = (report) => dockerOf(report).containers ?? [];
 export const imagesOf = (report) => dockerOf(report).images ?? [];
 export const networksOf = (report) => dockerOf(report).networks ?? [];
+export const daemonOf = (report) => dockerOf(report).daemon ?? null;
 export const volumesOf = (report) => dockerOf(report).volumes ?? [];
 
 export const containerHref = (c) => `#/containers/${encodeURIComponent(c.id)}`;
