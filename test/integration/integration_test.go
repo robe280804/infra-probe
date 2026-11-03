@@ -68,7 +68,9 @@ func buildBinary(t *testing.T) string {
 	}
 	out := filepath.Join(t.TempDir(), name)
 
-	cmd := exec.Command("go", "build", "-o", out, "../../cmd/infra-probe")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "../../cmd/infra-probe")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build failed: %v\n%s", err, output)
 	}
@@ -78,7 +80,9 @@ func buildBinary(t *testing.T) string {
 func TestBinary_Version(t *testing.T) {
 	bin := buildBinary(t)
 
-	out, err := exec.Command(bin, "version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "version").Output()
 	if err != nil {
 		t.Fatalf("version failed: %v", err)
 	}
@@ -93,7 +97,9 @@ func TestBinary_ScanProducesValidReport(t *testing.T) {
 	// The exit code is 1 when a collector fails (e.g. no Docker daemon), but
 	// stdout must be a valid report either way.
 	var stdout bytes.Buffer
-	cmd := exec.Command(bin, "scan", "--timeout", "20s")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "scan", "--timeout", "20s")
 	cmd.Stdout = &stdout
 	_ = cmd.Run()
 
