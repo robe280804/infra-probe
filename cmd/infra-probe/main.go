@@ -12,10 +12,8 @@ import (
 	"github.com/netseven/infra-probe/internal/collector/docker"
 	"github.com/netseven/infra-probe/internal/collector/host"
 	"github.com/netseven/infra-probe/internal/report"
+	"github.com/netseven/infra-probe/internal/version"
 )
-
-// Overridden at build time: -ldflags "-X main.version=1.0.0"
-var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -27,7 +25,7 @@ func main() {
 	case "scan":
 		os.Exit(runScan(os.Args[2:]))
 	case "version":
-		fmt.Println(version)
+		fmt.Println(version.String())
 	default:
 		usage()
 		os.Exit(2)
@@ -49,7 +47,7 @@ func runScan(args []string) int {
 		docker.New(),
 	}
 
-	r := report.Build(ctx, version, collectors)
+	r := report.Build(ctx, version.Version, collectors)
 	if err := r.WriteJSON(os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
