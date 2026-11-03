@@ -4,7 +4,7 @@ import { h } from "../lib/dom.js";
 import { fmtBytes, fmtPct, fmtDate, fmtNanos } from "../lib/format.js";
 import { badge, stateBadge, card, tile, kv, table, chips, rawJson } from "../lib/ui.js";
 import { meter, lineChart } from "../lib/charts.js";
-import { containersOf, imagesOf, networksOf, imageHref, networkHref } from "../data/report.js";
+import { containersOf, imagesOf, networksOf, volumesOf, imageHref, networkHref, volumeHref } from "../data/report.js";
 import { findings, portRows, isDockerSock } from "../data/findings.js";
 import { link, yesNo, notFound } from "./shared.js";
 
@@ -181,7 +181,14 @@ export function containerDetail(report, id, history) {
     table(
       [
         { title: "Type", render: (m) => m.Type },
-        { title: "Source", render: (m) => h("span", { class: "mono" }, m.Source || m.Name || "—") },
+        {
+          title: "Source",
+          render: (m) => {
+            // Named volumes link to their page; bind mounts show the host path.
+            const vol = m.Type === "volume" && m.Name ? volumesOf(report).find((v) => v.name === m.Name) : null;
+            return vol ? link(volumeHref(vol), vol.anonymous ? `volume ${m.Name.slice(0, 12)}` : m.Name) : h("span", { class: "mono" }, m.Source || m.Name || "—");
+          },
+        },
         { title: "Destination", render: (m) => h("span", { class: "mono", text: m.Destination }) },
         { title: "Access", render: (m) => (m.RW ? badge("read-write", isDockerSock(m.Source) ? "bad" : "neutral") : badge("read-only", "ok")) },
       ],

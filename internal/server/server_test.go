@@ -184,6 +184,7 @@ func TestEmbeddedUIIsServed(t *testing.T) {
 		{"/data/findings.js", "export", "text/javascript"},
 		{"/views/containers.js", "export", "text/javascript"},
 		{"/views/networks.js", "export", "text/javascript"},
+		{"/views/volumes.js", "export", "text/javascript"},
 		{"/style.css", "--bg", "text/css"},
 	}
 	for _, tt := range tests {
