@@ -1,2 +1,15 @@
+# Build output
 /bin/
+/dist/
 *.exe
+
+# Test output
+coverage.out
+*.test
+
+# IDE
+.idea/
+.vscode/
+
+# Local reports produced by the probe
+/report*.json
