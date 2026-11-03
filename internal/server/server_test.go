@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netseven/infra-probe/internal/export"
 	"github.com/netseven/infra-probe/internal/report"
 )
 
@@ -108,6 +109,93 @@ func TestAPIExport(t *testing.T) {
 	}
 }
 
+func zipFiles(t *testing.T, rec *httptest.ResponseRecorder) map[string]string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("invalid zip: %v", err)
+	}
+	files := map[string]string{}
+	for _, f := range zr.File {
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b bytes.Buffer
+		_, err = b.ReadFrom(rc)
+		_ = rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[f.Name] = b.String()
+	}
+	return files
+}
+
+func TestAPIExport_IncludeSelectsCategories(t *testing.T) {
+	var calls int
+	rec := get(t, newHandler(&calls), "/api/export?include=host,images")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="infra-probe-h-20231114T221320Z-host-images.zip"` {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	files := zipFiles(t, rec)
+	if _, ok := files["collectors/host.json"]; !ok {
+		t.Error("the selected host category is missing")
+	}
+	if !strings.Contains(files["manifest.json"], `"partial": true`) {
+		t.Error("manifest does not say the export is partial")
+	}
+}
+
+func TestAPIExport_IncludeOmittedMeansEverything(t *testing.T) {
+	var calls int
+	files := zipFiles(t, get(t, newHandler(&calls), "/api/export"))
+	if !strings.Contains(files["manifest.json"], `"partial": false`) {
+		t.Error("an export without include must be complete")
+	}
+}
+
+func TestAPIExport_InvalidIncludeIsRejectedBeforeScanning(t *testing.T) {
+	for _, path := range []string{
+		"/api/export?include=nope",
+		"/api/export?include=host,nope",
+		"/api/export?include=",
+		"/api/export?include=,",
+	} {
+		var calls int
+		rec := get(t, newHandler(&calls), path)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", path, rec.Code)
+		}
+		if calls != 0 {
+			t.Errorf("%s: a rejected request must not trigger a scan", path)
+		}
+		if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+			t.Errorf("%s: Content-Type = %q, an error message must be plain text", path, ct)
+		}
+	}
+}
+
+// TestExportCategoriesMatchTheUI keeps the checkboxes of the dashboard in step
+// with the categories the server understands: a category missing from the UI
+// could never be selected on its own.
+func TestExportCategoriesMatchTheUI(t *testing.T) {
+	js, err := fs.ReadFile(webFS, "web/data/export.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range export.Categories {
+		if !strings.Contains(string(js), `key: "`+c+`"`) {
+			t.Errorf("web/data/export.js has no entry for the %q category", c)
+		}
+	}
+}
+
 func TestAPIExport_UnserializableReportReturns500(t *testing.T) {
 	scan := func(context.Context) *report.Report {
 		return &report.Report{Results: map[string]any{"bad": make(chan int)}}
@@ -188,6 +276,8 @@ func TestEmbeddedUIIsServed(t *testing.T) {
 		{"/views/daemon.js", "export", "text/javascript"},
 		{"/views/compose.js", "export", "text/javascript"},
 		{"/data/compose.js", "export", "text/javascript"},
+		{"/data/export.js", "export", "text/javascript"},
+		{"/views/export-menu.js", "export", "text/javascript"},
 		{"/data/daemon.js", "export", "text/javascript"},
 		{"/style.css", "--bg", "text/css"},
 	}

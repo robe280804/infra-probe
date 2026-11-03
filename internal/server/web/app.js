@@ -10,6 +10,7 @@ import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
 import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
 import { composeList, composeDetail, defaultComposeFilters } from "./views/compose.js";
 import { daemonPage } from "./views/daemon.js";
+import { exportMenu } from "./views/export-menu.js";
 import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
 const MAX_SAMPLES = 120;
@@ -160,6 +161,7 @@ window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
 });
 
+$("export").replaceChildren(exportMenu());
 $("refresh").addEventListener("click", () => load());
 $("interval").addEventListener("change", schedule);
 $("theme").addEventListener("click", () => {

@@ -243,6 +243,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge.bad { color: var(--bad-text); border-color: var(--bad); }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badges.stack { flex-direction: column; align-items: flex-start; }
+.export summary { cursor: pointer; color: var(--text-2); }
+.export-body { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.export-body p { margin: 0; }
+.check { display: flex; align-items: center; gap: 8px; color: var(--text-2); cursor: pointer; }
+.check input { padding: 0; width: auto; }
+.button[aria-disabled="true"] { opacity: 0.6; cursor: default; }
+.button[aria-disabled="true"]:hover { border-color: var(--border); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .stack-list { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---------- findings ---------- */
