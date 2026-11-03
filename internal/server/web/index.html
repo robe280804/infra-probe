@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>infra-probe</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">infra-probe</div>
+      <nav id="nav" aria-label="Main"></nav>
+
+      <div class="sidebar-foot">
+        <div id="updated" class="muted" aria-live="polite"></div>
+        <label class="field">
+          <span>Auto refresh</span>
+          <select id="interval">
+            <option value="0">Off</option>
+            <option value="5000">5 s</option>
+            <option value="10000" selected>10 s</option>
+            <option value="30000">30 s</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="refresh" type="button">Refresh now</button>
+          <button id="theme" type="button" aria-label="Toggle light/dark theme">Theme</button>
+        </div>
+      </div>
+    </aside>
+
+    <main id="view" tabindex="-1"></main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

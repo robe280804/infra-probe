@@ -14,6 +14,18 @@ make build          # bin/infra-probe
 `scan` exits with code 1 if at least one collector failed; the report is
 printed anyway.
 
+### Dashboard
+
+```sh
+./bin/infra-probe serve            # http://127.0.0.1:8080
+```
+
+A read-only web UI (embedded in the binary) listing containers and images,
+with filter and full configuration detail. By default it listens on localhost
+only; there is no authentication, so do not expose it to the network (a warning
+is printed if you try). To reach it on a remote server use an SSH tunnel:
+`ssh -L 8080:127.0.0.1:8080 user@server`.
+
 ## Development
 
 ```sh

@@ -1,0 +1,92 @@
+# Throwaway containers to try the dashboard locally. NOT for production.
+#
+#   docker compose -f test/dashboard/compose.yaml up -d
+#   go run ./cmd/infra-probe serve        # then open http://127.0.0.1:8080
+#   docker compose -f test/dashboard/compose.yaml down
+#
+# Each service exists to exercise one thing the dashboard shows.
+
+name: probe-demo
+
+services:
+  # Healthy baseline: limits set, published on localhost only, health check.
+  web-ok:
+    image: nginx:alpine
+    container_name: demo-web-ok
+    ports:
+      - "127.0.0.1:8081:80"
+    mem_limit: 128m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Hardened example: non-root, read-only filesystem, all capabilities dropped.
+  redis-hardened:
+    image: redis:7-alpine
+    container_name: demo-redis-hardened
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    pids_limit: 50
+
+  # Findings: published on all interfaces, no limits, runs as root.
+  web-public:
+    image: nginx:alpine
+    container_name: demo-web-public
+    ports:
+      - "8082:80"
+
+  # Memory meter: allocates ~100 MB under a 128 MB limit (should read "High").
+  memory-hog:
+    image: polinux/stress
+    container_name: demo-memory-hog
+    command: ["stress", "--vm", "1", "--vm-bytes", "100M", "--vm-hang", "0"]
+    mem_limit: 128m
+
+  # CPU meter: burns one core under a 0.5 core limit (should read "Critical").
+  cpu-burner:
+    image: polinux/stress
+    container_name: demo-cpu-burner
+    command: ["stress", "--cpu", "1"]
+    cpus: 0.5
+    mem_limit: 64m
+
+  # Findings: privileged, extra capability, Docker socket mounted.
+  # It only sleeps; it is a fixture to see the risk flags, not a real workload.
+  risky:
+    image: alpine:3
+    container_name: demo-risky
+    command: ["sleep", "infinity"]
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Health check that always fails: shows the "unhealthy" state.
+  unhealthy:
+    image: alpine:3
+    container_name: demo-unhealthy
+    command: ["sleep", "infinity"]
+    mem_limit: 32m
+    healthcheck:
+      test: ["CMD", "false"]
+      interval: 5s
+      timeout: 2s
+      retries: 1
+
+  # Stopped container with a non-zero exit code.
+  failed-job:
+    image: alpine:3
+    container_name: demo-failed-job
+    command: ["sh", "-c", "echo boom; exit 3"]
+    restart: "no"
