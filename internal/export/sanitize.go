@@ -3,23 +3,16 @@ package export
 import (
 	"regexp"
 	"strings"
+
+	"github.com/netseven/infra-probe/internal/redact"
 )
 
 // Redacted replaces every value removed from the export.
-const Redacted = "<redacted>"
+const Redacted = redact.Mask
 
 // secretName matches names (map keys, flags, VAR names) that usually hold a
 // secret: passwords, tokens, API keys, private keys, credentials.
 var secretName = regexp.MustCompile(`(?i)(passw|passphrase|pwd|secret|token|api[-_]?key|private[-_]?key|access[-_]?key|auth[-_]?key|credential)`)
-
-// inlineSecret matches "name=value" / "name: value" pairs inside a free-form
-// string, e.g. a shell command "mysql --password=s3cret -h db". A colon only
-// counts when followed by a space, so image references such as
-// "secret-app:1.0" are left alone.
-var inlineSecret = regexp.MustCompile(`(?i)([\w.-]*(?:passw|passphrase|secret|token|api[-_]?key|private[-_]?key|access[-_]?key|auth[-_]?key|credential)[\w.-]*\s*(?:=|:\s)\s*)("[^"]*"|'[^']*'|[^\s"']+)`)
-
-// urlCredentials matches the password part of "scheme://user:password@host".
-var urlCredentials = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]*:)[^@\s/]+@`)
 
 // commandKeys are the Docker inspect fields holding an argv-like list.
 var commandKeys = map[string]bool{"Cmd": true, "Entrypoint": true, "Args": true, "Test": true}
@@ -69,8 +62,7 @@ func sanitizeField(key string, val any) any {
 
 // sanitizeString masks secrets embedded in a free-form string.
 func sanitizeString(s string) string {
-	s = urlCredentials.ReplaceAllString(s, "${1}"+Redacted+"@")
-	return inlineSecret.ReplaceAllString(s, "${1}"+Redacted)
+	return redact.String(s)
 }
 
 // redactEnvList keeps only variable names: "KEY=value" becomes "KEY=<redacted>".
