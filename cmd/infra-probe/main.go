@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/netseven/infra-probe/internal/collector"
@@ -74,7 +75,16 @@ func runExport(args []string) int {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	out := fs.String("o", "", "output file (default: infra-probe-<host>-<time>.zip in the current directory)")
 	timeout := fs.Duration("timeout", 30*time.Second, "overall scan timeout")
+	include := fs.String("include", "", "export only these categories, comma separated ("+strings.Join(export.Categories, ", ")+")")
+	exclude := fs.String("exclude", "", "export everything except these categories, comma separated")
 	_ = fs.Parse(args)
+
+	// Validate before scanning and before creating the file.
+	selected, err := export.Select(*include, *exclude)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -84,7 +94,7 @@ func runExport(args []string) int {
 	r := report.Build(ctx, version.Version, collectors())
 	path := *out
 	if path == "" {
-		path = export.FileName(r)
+		path = export.FileNameFor(r, selected)
 	}
 
 	// The archive describes the whole server configuration: owner-only access.
@@ -93,8 +103,9 @@ func runExport(args []string) int {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
-	if err := export.Write(f, r); err != nil {
+	if err := export.WriteOnly(f, r, selected); err != nil {
 		_ = f.Close()
+		_ = os.Remove(path) // do not leave a truncated archive behind
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}

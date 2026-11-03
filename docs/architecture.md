@@ -9,7 +9,7 @@ internal/collector       Collector interface (one implementation per data source
 internal/collector/host    host facts
 internal/collector/docker  daemon setup, containers, images, networks, volumes, Compose projects (grouped from labels)
 internal/report          runs collectors, assembles and encodes the report
-internal/export          sanitized zip archive of a report (AI context export)
+internal/export          sanitized zip archive of a report (AI context export, by category)
 internal/redact          shared secret masking rules (collectors and export)
 internal/server          read-only HTTP API + embedded dashboard
 internal/version         build metadata injected via -ldflags
@@ -50,6 +50,10 @@ To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.
 - **Collectors are independent.** A failing collector is recorded under
   `errors` and never stops the others.
 - **Collectors only read.** No collector changes the state of the host.
+- **A partial export drops what is not selected before building anything.** Filtering
+  happens on the decoded report, so `report.json`, the summary and the manifest never
+  mention an excluded category. Categories are listed in `export.Categories` and
+  mirrored by `web/data/export.js` (a test keeps the two in step).
 - **Compose files are read defensively.** The path comes from a container label,
   so it is only read if it is absolute, `.yml`/`.yaml`, a regular file under 1 MiB,
   and parses as a compose file (a `services` section). Variables are not
