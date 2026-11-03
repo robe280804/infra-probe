@@ -2,12 +2,13 @@
 
 import { h } from "./lib/dom.js";
 import { fmtDate } from "./lib/format.js";
-import { containersOf, imagesOf, networksOf, volumesOf } from "./data/report.js";
+import { containersOf, imagesOf, networksOf, volumesOf, composeOf } from "./data/report.js";
 import { overview } from "./views/overview.js";
 import { containerList, defaultContainerFilters } from "./views/containers.js";
 import { containerDetail } from "./views/container-detail.js";
 import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
 import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
+import { composeList, composeDetail, defaultComposeFilters } from "./views/compose.js";
 import { daemonPage } from "./views/daemon.js";
 import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
@@ -17,7 +18,7 @@ const state = {
   report: null,
   error: null,
   // Filters live here, not in the views, so they survive refreshes and navigation.
-  filters: { containers: defaultContainerFilters(), images: defaultImageFilters(), networks: defaultNetworkFilters(), volumes: defaultVolumeFilters() },
+  filters: { containers: defaultContainerFilters(), images: defaultImageFilters(), networks: defaultNetworkFilters(), volumes: defaultVolumeFilters(), compose: defaultComposeFilters() },
   history: new Map(), // container id -> [{t, mem, cpu}] collected while the page is open
   timer: null,
 };
@@ -51,6 +52,7 @@ const NAV = [
   { section: "images", label: "Images", count: (r) => imagesOf(r).length },
   { section: "networks", label: "Networks", count: (r) => networksOf(r).length },
   { section: "volumes", label: "Volumes", count: (r) => volumesOf(r).length },
+  { section: "compose", label: "Compose", count: (r) => composeOf(r).length },
   { section: "daemon", label: "Docker daemon" },
   { label: "Security rules", soon: true },
 ];
@@ -95,6 +97,9 @@ function renderView(route) {
       break;
     case "networks":
       node = route.id ? networkDetail(state.report, route.id) : networkList(state.report, state.filters.networks);
+      break;
+    case "compose":
+      node = route.id ? composeDetail(state.report, route.id) : composeList(state.report, state.filters.compose);
       break;
     case "daemon":
       node = daemonPage(state.report);

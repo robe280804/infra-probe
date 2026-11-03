@@ -79,6 +79,9 @@ type Result struct {
 	Images     []Image     `json:"images"`
 	Networks   []Network   `json:"networks"`
 	Volumes    []Volume    `json:"volumes"`
+
+	// Compose groups the objects above by Docker Compose project.
+	Compose []ComposeProject `json:"compose"`
 }
 
 // dockerAPI is the subset of the Docker client used by the collector.
@@ -107,6 +110,10 @@ type Collector struct {
 
 	// configPaths lists where daemon.json may be; replaced in tests.
 	configPaths func(rootless bool) []string
+
+	// readComposeFile reads a compose file and returns its modification time;
+	// replaced in tests.
+	readComposeFile func(path string) ([]byte, time.Time, error)
 }
 
 func New() *Collector {
@@ -114,6 +121,8 @@ func New() *Collector {
 		newClient:   func() (dockerAPI, error) { return client.New(client.FromEnv) },
 		readFile:    os.ReadFile,
 		configPaths: defaultConfigPaths,
+
+		readComposeFile: readLocalComposeFile,
 	}
 }
 
@@ -170,13 +179,16 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 		volumes = []Volume{}
 	}
 
+	compose := collectCompose(containers, networks, volumes)
+	errs = append(errs, c.attachComposeFiles(compose, containers)...)
+
 	daemon, err := c.collectDaemon(ctx, apiClient, usage)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	errs = append(errs, itemErrors(containers, images, networks)...)
-	return Result{Containers: containers, Images: images, Networks: networks, Volumes: volumes, Daemon: daemon}, errors.Join(errs...)
+	return Result{Containers: containers, Images: images, Networks: networks, Volumes: volumes, Compose: compose, Daemon: daemon}, errors.Join(errs...)
 }
 
 // itemErrors turns the per-item failures (inspect/stats of one container,

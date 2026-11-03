@@ -31,7 +31,9 @@ func readme(m *manifest) string {
 	b.WriteString("4. `report.json`: the same data in a single file.\n\n")
 	b.WriteString("Items are linked by ID: `container.image_id` = `image.id`, " +
 		"`network.containers[].container_id` = `container.id`, " +
-		"`volume.containers[].container_id` = `container.id`.\n\n")
+		"`volume.containers[].container_id` = `container.id`, " +
+		"`compose[].services[].containers[].id` = `container.id`, " +
+		"`compose[].networks[].name` / `compose[].volumes[].name` = `network.name` / `volume.name`.\n\n")
 
 	b.WriteString("## Files\n\n")
 	for _, f := range m.Files {
@@ -94,6 +96,7 @@ func summary(s *summaryData) string {
 		len(networks), len(volumes), countWhere(volumes, unusedVolume))
 
 	writeDaemon(&b, mapAt(dockerRes, "daemon"))
+	writeCompose(&b, objects(dockerRes["compose"]), containers, s.files["compose"])
 	writeContainers(&b, containers, s.files["containers"])
 	writeMounts(&b, containers)
 	writeImages(&b, images, s.files["images"])
@@ -184,6 +187,80 @@ func writeDaemon(b *strings.Builder, daemon map[string]any) {
 		fmt.Fprintf(b, "\nTotal %s, of which %s reclaimable.\n", bytesHuman(num(du["total_size"])), bytesHuman(num(du["reclaimable"])))
 	}
 	b.WriteString("\n")
+}
+
+// writeCompose lists the Compose projects. Paths are the ones recorded in the
+// labels when the project was started: the files themselves are not read.
+func writeCompose(b *strings.Builder, projects []map[string]any, containers []map[string]any, files []string) {
+	b.WriteString("## Compose projects\n\n")
+	if len(projects) == 0 {
+		b.WriteString("None.\n\n")
+		return
+	}
+	b.WriteString("State `down` means no container is left, only networks or volumes.\n\n")
+	b.WriteString("| Project | State | Services | Directory | Compose files | Networks | Volumes | File |\n|---|---|---|---|---|---|---|---|\n")
+
+	inProject := map[string]bool{}
+	for i, p := range projects {
+		var services []string
+		for _, svc := range objects(p["services"]) {
+			conts := objects(svc["containers"])
+			for _, c := range conts {
+				inProject[str(c["id"])] = true
+			}
+			services = append(services, fmt.Sprintf("%s (%g/%d)", str(svc["name"]), num(svc["running"]), len(conts)))
+		}
+		var networks, volumes []string
+		for _, n := range objects(p["networks"]) {
+			networks = append(networks, str(n["name"]))
+		}
+		for _, v := range objects(p["volumes"]) {
+			volumes = append(volumes, str(v["name"]))
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			cell(p["name"]), cell(p["state"]), cell(strings.Join(services, ", ")), cell(p["working_dir"]),
+			cell(strings.Join(stringsOf(p["config_files"]), ", ")), cell(strings.Join(networks, ", ")),
+			cell(strings.Join(volumes, ", ")), fileLink(files, i))
+	}
+	b.WriteString("\n")
+	writeComposeFileNotes(b, projects)
+
+	var outside []string
+	for _, c := range containers {
+		if !inProject[str(c["id"])] {
+			outside = append(outside, str(c["name"]))
+		}
+	}
+	if len(outside) > 0 {
+		sort.Strings(outside)
+		fmt.Fprintf(b, "Containers outside Compose (started with `docker run` or another tool): %s.\n\n", strings.Join(outside, ", "))
+	}
+}
+
+// writeComposeFileNotes reports what the reader should know about the compose
+// files: possible drift, and files that were not read.
+func writeComposeFileNotes(b *strings.Builder, projects []map[string]any) {
+	var drift, unread []string
+	for _, p := range projects {
+		if p["config_changed_since_start"] == true {
+			drift = append(drift, str(p["name"]))
+		}
+		for _, f := range objects(p["files"]) {
+			if status := str(f["status"]); status != "ok" {
+				unread = append(unread, fmt.Sprintf("%s: %s (%s)", str(p["name"]), oneLine(str(f["path"])), status))
+			}
+		}
+	}
+	if len(drift) > 0 {
+		fmt.Fprintf(b, "Compose files modified after the containers were created (what runs may differ from the file): %s.\n\n", strings.Join(drift, ", "))
+	}
+	if len(unread) > 0 {
+		b.WriteString("Compose files that were not read (`missing`: no longer on disk; `skipped`: not on this machine):\n\n")
+		for _, u := range unread {
+			fmt.Fprintf(b, "- %s\n", u)
+		}
+		b.WriteString("\n")
+	}
 }
 
 func writeContainers(b *strings.Builder, containers []map[string]any, files []string) {

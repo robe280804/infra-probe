@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/netseven/infra-probe/internal/report"
 )
 
@@ -29,6 +31,7 @@ var dockerSections = []struct {
 	{"images", imageFileLabel},
 	{"networks", func(m map[string]any) string { return str(m["name"]) }},
 	{"volumes", func(m map[string]any) string { return str(m["name"]) }},
+	{"compose", func(m map[string]any) string { return str(m["name"]) }},
 }
 
 // Write encodes r as a zip archive on w.
@@ -99,6 +102,12 @@ func Write(w io.Writer, r *report.Report) error {
 				fileEntry{"docker/" + sec.name + "/<name>.json", "one file per item: summary + full Docker inspect"},
 			)
 		}
+
+		composeEntries, err := writeComposeFiles(a, objects(dockerRes["compose"]))
+		if err != nil {
+			return err
+		}
+		m.Files = append(m.Files, composeEntries...)
 	}
 
 	if len(m.Errors) > 0 {
@@ -128,6 +137,55 @@ func Write(w io.Writer, r *report.Report) error {
 		return err
 	}
 	return a.zw.Close()
+}
+
+// writeComposeFiles writes the compose files found on the server as YAML, so
+// they read like the originals. They were sanitized by the collector (and once
+// more by the export): environment values are masked.
+func writeComposeFiles(a *archive, projects []map[string]any) ([]fileEntry, error) {
+	var entries []fileEntry
+	for _, p := range projects {
+		dir := "docker/compose-files/" + safeName(str(p["name"]))
+		used := map[string]bool{}
+		for _, f := range objects(p["files"]) {
+			content, ok := f["content"].(map[string]any)
+			if !ok {
+				continue
+			}
+			base := lastPathElement(str(f["path"]))
+			name := safeName(base)
+			if name == "" {
+				name = "compose.yml"
+			}
+			for n := 2; used[name]; n++ {
+				name = fmt.Sprintf("%d-%s", n, safeName(base))
+			}
+			used[name] = true
+
+			body, err := yaml.Marshal(content)
+			if err != nil {
+				return nil, fmt.Errorf("encode %s: %w", name, err)
+			}
+			header := "# Sanitized copy: environment values are masked, ${VAR} references are kept.\n" +
+				"# Source on the server: " + oneLine(str(f["path"])) + "\n"
+			path := dir + "/" + name
+			if err := a.writeFile(path, append([]byte(header), body...)); err != nil {
+				return nil, err
+			}
+			entries = append(entries, fileEntry{path, "compose file of project " + str(p["name"]) + ", sanitized"})
+		}
+	}
+	return entries, nil
+}
+
+// lastPathElement is the file name of a path written with / or \ (the path
+// belongs to the machine running Docker, which may not be the one running the
+// export).
+func lastPathElement(p string) string {
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		return p[i+1:]
+	}
+	return p
 }
 
 // FileName is the suggested name of the archive, e.g.

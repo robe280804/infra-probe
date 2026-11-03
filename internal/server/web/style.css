@@ -243,6 +243,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge.bad { color: var(--bad-text); border-color: var(--bad); }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .badges.stack { flex-direction: column; align-items: flex-start; }
+.stack-list { display: flex; flex-direction: column; gap: 4px; }
 
 /* ---------- findings ---------- */
 

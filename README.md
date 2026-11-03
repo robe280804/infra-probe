@@ -20,7 +20,7 @@ printed anyway.
 ./bin/infra-probe serve            # http://127.0.0.1:8080
 ```
 
-A read-only web UI (embedded in the binary) listing the daemon setup, containers, images, networks and volumes,
+A read-only web UI (embedded in the binary) listing the daemon setup, Compose projects, containers, images, networks and volumes,
 with filter and full configuration detail. By default it listens on localhost
 only; there is no authentication, so do not expose it to the network (a warning
 is printed if you try). To reach it on a remote server use an SSH tunnel:
@@ -39,6 +39,10 @@ per container/image/network (with the full inspect payload) and the full report,
 so the whole server context can be handed to an AI assistant. Secrets are
 removed: environment values, secret-looking labels and keys, password/token flags
 in commands and credentials in URLs become `<redacted>`.
+
+When the Docker daemon runs on the same machine, the compose files of every
+project (found through the labels Compose leaves on the containers) are read and
+included with their environment values masked. `.env` files are never read.
 
 ## Development
 
