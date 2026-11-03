@@ -1,0 +1,29 @@
+# One-shot scan whose JSON report is written to /var/lib/infra-probe/report.json.
+# Prerequisite: a system user "infra-probe" that belongs to the "docker" group
+#   useradd --system --no-create-home --shell /usr/sbin/nologin -G docker infra-probe
+[Unit]
+Description=infra-probe scan
+After=docker.service
+
+[Service]
+Type=oneshot
+User=infra-probe
+ExecStart=/usr/local/bin/infra-probe scan
+StateDirectory=infra-probe
+StandardOutput=truncate:/var/lib/infra-probe/report.json
+
+# Hardening: the probe only reads, so it gets almost no privileges.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
