@@ -5,9 +5,11 @@ export const containersOf = (report) => dockerOf(report).containers ?? [];
 export const imagesOf = (report) => dockerOf(report).images ?? [];
 export const networksOf = (report) => dockerOf(report).networks ?? [];
 export const daemonOf = (report) => dockerOf(report).daemon ?? null;
+export const composeOf = (report) => dockerOf(report).compose ?? [];
 export const volumesOf = (report) => dockerOf(report).volumes ?? [];
 
 export const containerHref = (c) => `#/containers/${encodeURIComponent(c.id)}`;
 export const imageHref = (i) => `#/images/${encodeURIComponent(i.id)}`;
 export const networkHref = (n) => `#/networks/${encodeURIComponent(n.id)}`;
+export const composeHref = (p) => `#/compose/${encodeURIComponent(p.name)}`;
 export const volumeHref = (v) => `#/volumes/${encodeURIComponent(v.name)}`;

@@ -4,7 +4,7 @@ import { h } from "../lib/dom.js";
 import { fmtBytes } from "../lib/format.js";
 import { badge, scrollCard, tile, kv, table } from "../lib/ui.js";
 import { rankedBars } from "../lib/charts.js";
-import { containersOf, imagesOf, networksOf, volumesOf, containerHref } from "../data/report.js";
+import { containersOf, imagesOf, networksOf, volumesOf, composeOf, containerHref } from "../data/report.js";
 import { findings } from "../data/findings.js";
 import { link, page } from "./shared.js";
 
@@ -31,6 +31,7 @@ export function overview(report) {
       tile("Stopped", String(containers.length - running.length)),
       tile("Images", String(images.length)),
       tile("Networks", String(networksOf(report).length)),
+      tile("Compose projects", String(composeOf(report).length), `${composeOf(report).filter((p) => p.state === "running" || p.state === "partial").length} running`),
       tile("Volumes", String(volumesOf(report).length), `${volumesOf(report).filter((v) => v.containers.length === 0).length} unused`),
       tile("Unused images", String(images.filter((i) => i.containers === 0).length), "not used by any container"),
       tile("With findings", String(withFindings.length), "containers to review"),

@@ -4,7 +4,7 @@ import { h } from "../lib/dom.js";
 import { fmtBytes, fmtPct, fmtDate, fmtNanos } from "../lib/format.js";
 import { badge, stateBadge, card, tile, kv, table, chips, rawJson } from "../lib/ui.js";
 import { meter, lineChart } from "../lib/charts.js";
-import { containersOf, imagesOf, networksOf, volumesOf, imageHref, networkHref, volumeHref } from "../data/report.js";
+import { containersOf, imagesOf, networksOf, volumesOf, composeOf, imageHref, networkHref, volumeHref, composeHref } from "../data/report.js";
 import { findings, portRows, isDockerSock } from "../data/findings.js";
 import { link, yesNo, notFound } from "./shared.js";
 
@@ -84,6 +84,7 @@ export function containerDetail(report, id, history) {
   const state = inspect?.State ?? {};
   const list = findings(c);
   const image = imagesOf(report).find((i) => i.id === c.image_id);
+  const project = composeOf(report).find((p) => p.services.some((s) => s.containers.some((x) => x.id === c.id)));
 
   const head = h(
     "div",
@@ -104,6 +105,7 @@ export function containerDetail(report, id, history) {
   const general = card("General", kv([
     ["ID", h("span", { class: "mono", text: inspect.Id })],
     ["Status", c.status],
+    ["Compose project", project ? link(composeHref(project), project.name) : null],
     ["Created", fmtDate(inspect.Created)],
     ["Started", fmtDate(state.StartedAt)],
     ["Finished", fmtDate(state.FinishedAt)],
