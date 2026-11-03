@@ -77,6 +77,24 @@ func TestAPIReport(t *testing.T) {
 	}
 }
 
+func TestAPIReport_RedactsSecrets(t *testing.T) {
+	scan := func(context.Context) *report.Report {
+		return &report.Report{Results: map[string]any{"docker": map[string]any{"inspect": map[string]any{
+			"Config": map[string]any{"Cmd": []any{"app", "--token=cmdsecret"}, "Labels": map[string]any{"api_key": "labelsecret"}},
+		}}}}
+	}
+	rec := get(t, New(scan, time.Second, time.Second).Handler(), "/api/report")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	for _, secret := range []string{"cmdsecret", "labelsecret"} {
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Errorf("/api/report leaks %q: %s", secret, rec.Body.String())
+		}
+	}
+}
+
 func TestAPIReport_UnserializableReportReturns500(t *testing.T) {
 	scan := func(context.Context) *report.Report {
 		return &report.Report{Results: map[string]any{"bad": make(chan int)}}

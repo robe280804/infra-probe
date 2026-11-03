@@ -19,6 +19,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/netseven/infra-probe/internal/redact"
 	"github.com/netseven/infra-probe/internal/report"
 )
 
@@ -237,7 +238,7 @@ func FileNameFor(r *report.Report, selected []string) string {
 }
 
 const redactionNote = "Environment variable values, values of secret-looking keys and labels, " +
-	"password/token flags in commands and credentials in URLs are replaced with \"" + Redacted + "\"."
+	"password/token flags in commands and credentials in URLs are replaced with \"" + redact.Mask + "\"."
 
 type fileEntry struct {
 	Path        string `json:"path"`
@@ -273,7 +274,7 @@ func sanitizedReport(r *report.Report) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		return nil, fmt.Errorf("decode report: %w", err)
 	}
-	root, _ := sanitize(generic).(map[string]any)
+	root, _ := redact.Tree(generic).(map[string]any)
 	return root, nil
 }
 

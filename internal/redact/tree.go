@@ -1,102 +1,95 @@
-package export
+package redact
 
 import (
 	"regexp"
 	"strings"
-
-	"github.com/netseven/infra-probe/internal/redact"
 )
-
-// Redacted replaces every value removed from the export.
-const Redacted = redact.Mask
 
 // secretName matches names (map keys, flags, VAR names) that usually hold a
 // secret: passwords, tokens, API keys, private keys, credentials.
 var secretName = regexp.MustCompile(`(?i)(passw|passphrase|pwd|secret|token|api[-_]?key|private[-_]?key|access[-_]?key|auth[-_]?key|credential)`)
 
-// commandKeys are the Docker inspect fields holding an argv-like list.
+// commandKeys are the fields holding an argv-like list (Docker inspect).
 var commandKeys = map[string]bool{"Cmd": true, "Entrypoint": true, "Args": true, "Test": true}
 
-// sanitize walks a decoded JSON value and returns a copy with secrets removed.
-// It is a second line of defense on top of the redaction done by collectors:
-// the export is meant to be handed to third parties (an AI assistant), so
-// anything that looks like a credential is masked.
-func sanitize(v any) any {
+// Tree walks a decoded JSON value (maps, lists, strings, numbers...) and
+// returns a copy with secrets removed. It does not depend on what produced the
+// value, so it covers whatever a collector returns, now and in the future: it
+// is the single choke point every output (scan, dashboard API, export) goes
+// through, on top of the redaction the collectors do themselves.
+//
+// It masks environment values, the value of keys named like a secret, the
+// value following a "--password" style flag, "password=..." pairs inside any
+// string and passwords in URLs.
+func Tree(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, val := range t {
-			out[k] = sanitizeField(k, val)
+			out[k] = field(k, val)
 		}
 		return out
 	case []any:
 		out := make([]any, len(t))
 		for i, val := range t {
-			out[i] = sanitize(val)
+			out[i] = Tree(val)
 		}
 		return out
 	case string:
-		return sanitizeString(t)
+		return String(t)
 	default:
 		return v
 	}
 }
 
-func sanitizeField(key string, val any) any {
+func field(key string, val any) any {
 	switch {
 	case key == "Env":
 		if list, ok := val.([]any); ok {
-			return redactEnvList(list)
+			return envList(list)
 		}
 	case commandKeys[key]:
 		if list, ok := val.([]any); ok {
-			return redactArgs(list)
+			return args(list)
 		}
 	case secretName.MatchString(key):
 		if s, ok := val.(string); ok && s != "" {
-			return Redacted
+			return Mask
 		}
 	}
-	return sanitize(val)
+	return Tree(val)
 }
 
-// sanitizeString masks secrets embedded in a free-form string.
-func sanitizeString(s string) string {
-	return redact.String(s)
-}
-
-// redactEnvList keeps only variable names: "KEY=value" becomes "KEY=<redacted>".
-// Collectors already do this; repeating it here keeps the guarantee even if a
-// future collector forgets.
-func redactEnvList(list []any) []any {
+// envList keeps only variable names: "KEY=value" becomes "KEY=<redacted>".
+func envList(list []any) []any {
 	out := make([]any, len(list))
 	for i, item := range list {
 		s, ok := item.(string)
 		if !ok {
-			out[i] = sanitize(item)
+			out[i] = Tree(item)
 			continue
 		}
 		key, _, _ := strings.Cut(s, "=")
-		out[i] = key + "=" + Redacted
+		out[i] = key + "=" + Mask
 	}
 	return out
 }
 
-// redactArgs masks secrets in a command line given as a list of arguments:
+// args masks secrets in a command line given as a list of arguments:
 // "--password=x", "DB_TOKEN=x", the value following "--password", and secrets
 // inside shell strings ("sh -c '...'").
-func redactArgs(list []any) []any {
+func args(list []any) []any {
 	out := make([]any, len(list))
 	maskNext := false
 	for i, item := range list {
 		s, ok := item.(string)
 		if !ok {
-			out[i] = sanitize(item)
+			out[i] = Tree(item)
 			maskNext = false
 			continue
 		}
 		if maskNext {
-			out[i] = Redacted
+			out[i] = Mask
 			maskNext = false
 			continue
 		}
@@ -106,7 +99,7 @@ func redactArgs(list []any) []any {
 			maskNext = true
 			continue
 		}
-		out[i] = sanitizeString(s)
+		out[i] = String(s)
 	}
 	return out
 }

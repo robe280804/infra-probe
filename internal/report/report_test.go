@@ -136,3 +136,48 @@ func TestWriteJSON_UnserializableDataReturnsError(t *testing.T) {
 		t.Error("WriteJSON() error = nil, want an encoding error")
 	}
 }
+
+// inspectLike mimics the raw payloads collectors return: a command line, labels
+// and options that only the generic redaction can recognize.
+type inspectLike struct {
+	Config struct {
+		Env    []string          `json:"Env"`
+		Cmd    []string          `json:"Cmd"`
+		Labels map[string]string `json:"Labels"`
+	} `json:"Config"`
+	Counter uint64 `json:"counter"`
+}
+
+func TestWriteJSON_RedactsWhatCollectorsLeaveRaw(t *testing.T) {
+	var payload inspectLike
+	payload.Config.Env = []string{"DB_PASSWORD=envsecret", "MODE=prod"}
+	payload.Config.Cmd = []string{"app", "--token=cmdsecret", "--api-key", "nextsecret", "--port=80"}
+	payload.Config.Labels = map[string]string{"com.example.api_key": "labelsecret", "com.example.team": "infra"}
+	payload.Counter = 9007199254740993 // 2^53+1: a float64 cannot hold it
+
+	r := &Report{Version: "t", Results: map[string]any{"docker": payload},
+		Errors: map[string]string{"docker": "dial postgres://admin:errsecret@db failed"}}
+
+	var buf bytes.Buffer
+	if err := r.WriteJSON(&buf); err != nil {
+		t.Fatalf("WriteJSON: %v", err)
+	}
+	out := buf.String()
+
+	for _, secret := range []string{"envsecret", "cmdsecret", "nextsecret", "labelsecret", "errsecret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("output leaks %q:\n%s", secret, out)
+		}
+	}
+	for _, keep := range []string{"DB_PASSWORD=<redacted>", "MODE=<redacted>", "--token=<redacted>", "--port=80", "com.example.team", "infra"} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("output lacks %q:\n%s", keep, out)
+		}
+	}
+	if !strings.Contains(out, "9007199254740993") {
+		t.Errorf("a large integer lost precision:\n%s", out)
+	}
+	if !json.Valid(buf.Bytes()) {
+		t.Error("output is not valid JSON")
+	}
+}

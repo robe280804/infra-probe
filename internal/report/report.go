@@ -2,12 +2,14 @@
 package report
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"time"
 
 	"github.com/netseven/infra-probe/internal/collector"
+	"github.com/netseven/infra-probe/internal/redact"
 )
 
 // Report is the output of a scan: what every collector returned, and what
@@ -41,9 +43,28 @@ func Build(ctx context.Context, version string, collectors []collector.Collector
 	return r
 }
 
-// WriteJSON writes the report as indented JSON.
+// WriteJSON writes the report as indented JSON, with secrets removed.
+//
+// Collectors redact what they know to be secret (environment values), but the
+// report also carries raw inspect payloads: command lines, labels, options. So
+// it goes through redact.Tree on the way out, whatever the collector returned.
+// Everything that serializes a report (scan, the dashboard API) uses this
+// method, so none of them can forget it.
 func (r *Report) WriteJSON(w io.Writer) error {
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber() // keep integers exact: byte counters can exceed 2^53
+	var generic any
+	if err := dec.Decode(&generic); err != nil {
+		return err
+	}
+
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(r)
+	enc.SetEscapeHTML(false) // keep "<redacted>" readable
+	return enc.Encode(redact.Tree(generic))
 }
