@@ -1,11 +1,12 @@
-// Package docker collects information about the containers, images, networks
-// and volumes managed by the local Docker daemon.
+// Package docker collects information about the Docker daemon and the
+// containers, images, networks and volumes it manages.
 package docker
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -73,6 +74,7 @@ type Image struct {
 
 // Result is what the collector returns to the report.
 type Result struct {
+	Daemon     *Daemon     `json:"daemon"`
 	Containers []Container `json:"containers"`
 	Images     []Image     `json:"images"`
 	Networks   []Network   `json:"networks"`
@@ -91,17 +93,27 @@ type dockerAPI interface {
 	NetworkInspect(ctx context.Context, networkID string, options client.NetworkInspectOptions) (client.NetworkInspectResult, error)
 	VolumeList(ctx context.Context, options client.VolumeListOptions) (client.VolumeListResult, error)
 	DiskUsage(ctx context.Context, options client.DiskUsageOptions) (client.DiskUsageResult, error)
+	Info(ctx context.Context, options client.InfoOptions) (client.SystemInfoResult, error)
+	ServerVersion(ctx context.Context, options client.ServerVersionOptions) (client.ServerVersionResult, error)
 	Close() error
 }
 
 type Collector struct {
 	// newClient builds the Docker client; replaced in tests.
 	newClient func() (dockerAPI, error)
+
+	// readFile reads daemon.json; replaced in tests.
+	readFile func(path string) ([]byte, error)
+
+	// configPaths lists where daemon.json may be; replaced in tests.
+	configPaths func(rootless bool) []string
 }
 
 func New() *Collector {
 	return &Collector{
-		newClient: func() (dockerAPI, error) { return client.New(client.FromEnv) },
+		newClient:   func() (dockerAPI, error) { return client.New(client.FromEnv) },
+		readFile:    os.ReadFile,
+		configPaths: defaultConfigPaths,
 	}
 }
 
@@ -137,9 +149,20 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 		errs = append(errs, err)
 		networks = []Network{}
 	}
+
+	// One disk usage call feeds the volume sizes and the daemon summary. It
+	// walks the volume directories, so it can be slow or fail: everything that
+	// needs it is then returned without sizes, together with the error.
+	var usage *client.DiskUsageResult
+	du, err := apiClient.DiskUsage(ctx, client.DiskUsageOptions{Containers: true, Images: true, Volumes: true, BuildCache: true, Verbose: true})
+	if err != nil {
+		errs = append(errs, fmt.Errorf("disk usage: %w", err))
+	} else {
+		usage = &du
+	}
+
 	// Volumes are linked to containers through their mounts, so they come last.
-	// On a disk usage failure the volumes are still returned, without sizes.
-	volumes, err := collectVolumes(ctx, apiClient, containers)
+	volumes, err := collectVolumes(ctx, apiClient, containers, usage)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -147,8 +170,13 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 		volumes = []Volume{}
 	}
 
+	daemon, err := c.collectDaemon(ctx, apiClient, usage)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
 	errs = append(errs, itemErrors(containers, images, networks)...)
-	return Result{Containers: containers, Images: images, Networks: networks, Volumes: volumes}, errors.Join(errs...)
+	return Result{Containers: containers, Images: images, Networks: networks, Volumes: volumes, Daemon: daemon}, errors.Join(errs...)
 }
 
 // itemErrors turns the per-item failures (inspect/stats of one container,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/api/types/system"
 	"github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -40,6 +42,12 @@ type fakeAPI struct {
 	diskUsage     []volume.Volume // volumes with UsageData, as returned by /system/df
 	diskUsageErr  error
 	mountsFor     map[string][]container.MountPoint // container ID -> mounts
+	dfTotals      *client.DiskUsageResult           // returned by DiskUsage, volume items are replaced by diskUsage
+
+	info       system.Info
+	infoErr    error
+	version    client.ServerVersionResult
+	versionErr error
 
 	closed bool
 }
@@ -67,7 +75,20 @@ func (f *fakeAPI) DiskUsage(context.Context, client.DiskUsageOptions) (client.Di
 	if f.diskUsageErr != nil {
 		return client.DiskUsageResult{}, f.diskUsageErr
 	}
-	return client.DiskUsageResult{Volumes: client.VolumesDiskUsage{Items: f.diskUsage}}, nil
+	res := client.DiskUsageResult{}
+	if f.dfTotals != nil {
+		res = *f.dfTotals
+	}
+	res.Volumes.Items = f.diskUsage
+	return res, nil
+}
+
+func (f *fakeAPI) Info(context.Context, client.InfoOptions) (client.SystemInfoResult, error) {
+	return client.SystemInfoResult{Info: f.info}, f.infoErr
+}
+
+func (f *fakeAPI) ServerVersion(context.Context, client.ServerVersionOptions) (client.ServerVersionResult, error) {
+	return f.version, f.versionErr
 }
 
 func (f *fakeAPI) ContainerStats(_ context.Context, id string, _ client.ContainerStatsOptions) (client.ContainerStatsResult, error) {
@@ -123,8 +144,14 @@ func (f *fakeAPI) ImageInspect(_ context.Context, id string, _ ...client.ImageIn
 
 func (f *fakeAPI) Close() error { f.closed = true; return nil }
 
+// newTestCollector never reads the real daemon.json of the machine running
+// the tests: by default there is no configuration file.
 func newTestCollector(api dockerAPI, newErr error) *Collector {
-	return &Collector{newClient: func() (dockerAPI, error) { return api, newErr }}
+	return &Collector{
+		newClient:   func() (dockerAPI, error) { return api, newErr },
+		readFile:    func(string) ([]byte, error) { return nil, fs.ErrNotExist },
+		configPaths: func(bool) []string { return []string{"/etc/docker/daemon.json"} },
+	}
 }
 
 func TestCollectorName(t *testing.T) {

@@ -70,6 +70,13 @@ func Write(w io.Writer, r *report.Report) error {
 	// file per item with the full data.
 	sum := summaryData{manifest: &m, results: results, files: map[string][]string{}}
 	if dockerRes, ok := results["docker"].(map[string]any); ok {
+		// How the daemon is set up: version, drivers, registries, daemon.json.
+		if daemon, ok := dockerRes["daemon"].(map[string]any); ok {
+			if err := a.writeJSON("docker/daemon.json", daemon); err != nil {
+				return err
+			}
+			m.Files = append(m.Files, fileEntry{"docker/daemon.json", "Docker daemon: version, drivers, security options, registries, disk usage and daemon.json (secrets redacted)"})
+		}
 		for _, sec := range dockerSections {
 			items := objects(dockerRes[sec.name])
 			m.Counts[sec.name] = len(items)
