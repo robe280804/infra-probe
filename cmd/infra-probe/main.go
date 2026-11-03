@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"github.com/netseven/infra-probe/internal/collector"
 	"github.com/netseven/infra-probe/internal/collector/docker"
 	"github.com/netseven/infra-probe/internal/collector/host"
+	"github.com/netseven/infra-probe/internal/export"
 	"github.com/netseven/infra-probe/internal/report"
 	"github.com/netseven/infra-probe/internal/server"
 	"github.com/netseven/infra-probe/internal/version"
@@ -25,6 +27,8 @@ func main() {
 	switch os.Args[1] {
 	case "scan":
 		os.Exit(runScan(os.Args[2:]))
+	case "export":
+		os.Exit(runExport(os.Args[2:]))
 	case "serve":
 		os.Exit(runServe(os.Args[2:]))
 	case "version":
@@ -64,6 +68,51 @@ func runScan(args []string) int {
 	return 0
 }
 
+// runExport writes the report as a sanitized zip archive, the same one the
+// dashboard offers for download.
+func runExport(args []string) int {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	out := fs.String("o", "", "output file (default: infra-probe-<host>-<time>.zip in the current directory)")
+	timeout := fs.Duration("timeout", 30*time.Second, "overall scan timeout")
+	_ = fs.Parse(args)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+
+	r := report.Build(ctx, version.Version, collectors())
+	path := *out
+	if path == "" {
+		path = export.FileName(r)
+	}
+
+	// The archive describes the whole server configuration: owner-only access.
+	f, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	if err := export.Write(f, r); err != nil {
+		_ = f.Close()
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	if err := f.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+
+	fmt.Fprintln(os.Stderr, "export written to", path)
+	for name, msg := range r.Errors {
+		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", name, msg)
+	}
+	if len(r.Errors) > 0 {
+		return 1
+	}
+	return 0
+}
+
 func runServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:8080", "address to listen on")
@@ -94,5 +143,5 @@ func runServe(args []string) int {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: infra-probe <scan|serve|version> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: infra-probe <scan|export|serve|version> [flags]")
 }

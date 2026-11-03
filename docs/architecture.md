@@ -9,6 +9,8 @@ internal/collector       Collector interface (one implementation per data source
 internal/collector/host    host facts
 internal/collector/docker  containers + images (full inspect payloads)
 internal/report          runs collectors, assembles and encodes the report
+internal/export          sanitized zip archive of a report (AI context export)
+internal/server          read-only HTTP API + embedded dashboard
 internal/version         build metadata injected via -ldflags
 test/integration         tests needing a real Docker daemon / compiled binary
 deployments/systemd      hardened unit + timer for periodic scans
@@ -46,7 +48,9 @@ To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.
   `errors` and never stops the others.
 - **Collectors only read.** No collector changes the state of the host.
 - **Secrets are never exported.** Environment variable values are redacted;
-  only names are kept.
+  only names are kept. The zip export (`internal/export`) adds a second,
+  collector-independent pass over the whole report: secret-looking keys and
+  labels, password/token flags in commands and credentials in URLs are masked.
 - **Everything behind an interface is testable.** The Docker collector talks to
   a small `dockerAPI` interface so unit tests run without a daemon.
 - **`internal/` keeps the API private.** Nothing outside this module may import

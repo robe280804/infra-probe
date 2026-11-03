@@ -26,6 +26,20 @@ only; there is no authentication, so do not expose it to the network (a warning
 is printed if you try). To reach it on a remote server use an SSH tunnel:
 `ssh -L 8080:127.0.0.1:8080 user@server`.
 
+### Export for AI
+
+```sh
+./bin/infra-probe export            # infra-probe-<host>-<time>.zip
+./bin/infra-probe export -o ctx.zip
+```
+
+The same archive is available from the dashboard ("Export for AI" button,
+`GET /api/export`). It contains a README, a Markdown `SUMMARY.md`, one JSON file
+per container/image/network (with the full inspect payload) and the full report,
+so the whole server context can be handed to an AI assistant. Secrets are
+removed: environment values, secret-looking labels and keys, password/token flags
+in commands and credentials in URLs become `<redacted>`.
+
 ## Development
 
 ```sh

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/fs"
@@ -79,6 +81,38 @@ func TestAPIReport_UnserializableReportReturns500(t *testing.T) {
 		return &report.Report{Results: map[string]any{"bad": make(chan int)}}
 	}
 	rec := get(t, New(scan, time.Second, time.Second).Handler(), "/api/report")
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+func TestAPIExport(t *testing.T) {
+	var calls int
+	rec := get(t, newHandler(&calls), "/api/export")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/zip" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="infra-probe-h-20231114T221320Z.zip"` {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if _, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len())); err != nil {
+		t.Errorf("invalid zip: %v", err)
+	}
+}
+
+func TestAPIExport_UnserializableReportReturns500(t *testing.T) {
+	scan := func(context.Context) *report.Report {
+		return &report.Report{Results: map[string]any{"bad": make(chan int)}}
+	}
+	rec := get(t, New(scan, time.Second, time.Second).Handler(), "/api/export")
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", rec.Code)

@@ -137,7 +137,7 @@ main:focus { outline: none; }
 
 /* ---------- controls ---------- */
 
-button, select, input {
+button, .button, select, input {
   font: inherit;
   color: var(--text);
   background: var(--surface);
@@ -145,8 +145,9 @@ button, select, input {
   border-radius: 6px;
   padding: 6px 10px;
 }
-button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
+button, .button { cursor: pointer; }
+button:hover, .button:hover { border-color: var(--accent); }
+.button { display: inline-block; text-align: center; text-decoration: none; }
 button:disabled { opacity: 0.6; cursor: default; }
 input[type="search"] { width: 100%; max-width: 420px; padding: 8px 12px; }
 

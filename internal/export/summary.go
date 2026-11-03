@@ -1,0 +1,345 @@
+package export
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// summaryData is what SUMMARY.md is built from.
+type summaryData struct {
+	manifest *manifest
+	results  map[string]any
+	files    map[string][]string // docker section -> detail file of each item, same order
+}
+
+func readme(m *manifest) string {
+	var b strings.Builder
+	b.WriteString("# infra-probe export\n\n")
+	fmt.Fprintf(&b, "Snapshot of the server `%s` taken by infra-probe %s at %s (UTC).\n\n",
+		orDash(m.Hostname), orDash(m.Version), m.GeneratedAt.UTC().Format("2006-01-02 15:04:05"))
+	b.WriteString("It describes the host and everything managed by its Docker daemon: containers\n" +
+		"(full configuration, mounts, ports, networks, live resource usage), images and networks.\n" +
+		"It is meant to be given to an AI assistant or a reviewer as complete context of the server.\n\n")
+
+	b.WriteString("## How to read it\n\n")
+	b.WriteString("1. `SUMMARY.md`: overview with tables, start here.\n")
+	b.WriteString("2. `docker/<section>/index.json`: compact list of every item, each with a `file` field.\n")
+	b.WriteString("3. `docker/<section>/<name>.json`: everything about one item, including the raw\n" +
+		"   Docker inspect payload under `inspect` (field names as in the Docker Engine API).\n")
+	b.WriteString("4. `report.json`: the same data in a single file.\n\n")
+	b.WriteString("Items are linked by ID: `container.image_id` = `image.id`, " +
+		"`network.containers[].container_id` = `container.id`.\n\n")
+
+	b.WriteString("## Files\n\n")
+	for _, f := range m.Files {
+		fmt.Fprintf(&b, "- `%s`: %s\n", f.Path, f.Description)
+	}
+
+	b.WriteString("\n## Redaction\n\n")
+	b.WriteString(m.Redaction + " Variable names are kept, so it is still possible to see which\n" +
+		"settings a container receives, but not their values. Do not ask for the missing values.\n")
+
+	if len(m.Errors) > 0 {
+		b.WriteString("\n## Incomplete data\n\nSome information could not be collected, see `errors.json`.\n")
+	}
+
+	b.WriteString("\n## Suggested prompt\n\n")
+	b.WriteString("> You are reviewing a Linux server running Docker. The attached archive is a snapshot\n" +
+		"> produced by infra-probe; read README.md and SUMMARY.md first, then the detail files as\n" +
+		"> needed. Answer my questions about this server based only on this data.\n")
+	return b.String()
+}
+
+func summary(s *summaryData) string {
+	m := s.manifest
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "# Server summary: %s\n\n", orDash(m.Hostname))
+	fmt.Fprintf(&b, "Generated %s UTC by infra-probe %s.\n\n",
+		m.GeneratedAt.UTC().Format("2006-01-02 15:04:05"), orDash(m.Version))
+
+	if host, ok := s.results["host"].(map[string]any); ok {
+		b.WriteString("## Host\n\n")
+		for _, k := range sortedKeys(host) {
+			fmt.Fprintf(&b, "- **%s**: %s\n", k, cell(host[k]))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.Errors) > 0 {
+		b.WriteString("## Collection errors\n\nThe data below is incomplete:\n\n")
+		for _, k := range sortedKeys(m.Errors) {
+			fmt.Fprintf(&b, "- **%s**: %s\n", k, oneLine(m.Errors[k]))
+		}
+		b.WriteString("\n")
+	}
+
+	dockerRes, ok := s.results["docker"].(map[string]any)
+	if !ok {
+		b.WriteString("No Docker data was collected.\n")
+		return b.String()
+	}
+	containers := objects(dockerRes["containers"])
+	images := objects(dockerRes["images"])
+	networks := objects(dockerRes["networks"])
+
+	fmt.Fprintf(&b, "## Docker at a glance\n\n- Containers: %d (%d running)\n- Images: %d (%d unused)\n- Networks: %d\n\n",
+		len(containers), countWhere(containers, func(c map[string]any) bool { return str(c["state"]) == "running" }),
+		len(images), countWhere(images, func(i map[string]any) bool { return num(i["containers"]) == 0 }),
+		len(networks))
+
+	writeContainers(&b, containers, s.files["containers"])
+	writeMounts(&b, containers)
+	writeImages(&b, images, s.files["images"])
+	writeNetworks(&b, networks, s.files["networks"])
+	return b.String()
+}
+
+func writeContainers(b *strings.Builder, containers []map[string]any, files []string) {
+	b.WriteString("## Containers\n\n")
+	if len(containers) == 0 {
+		b.WriteString("None.\n\n")
+		return
+	}
+	b.WriteString("| Name | Image | State | Status | Ports | Networks | CPU % | Memory | Notes | File |\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|---|\n")
+	for i, c := range containers {
+		cpu, mem := "—", "—"
+		if st, ok := c["stats"].(map[string]any); ok {
+			cpu = fmt.Sprintf("%.1f", num(st["cpu_percent"]))
+			mem = bytesHuman(num(st["memory_usage"]))
+			if limit := num(st["memory_limit"]); limit > 0 {
+				mem += " / " + bytesHuman(limit)
+			}
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+			cell(c["name"]), cell(c["image"]), cell(c["state"]), cell(c["status"]),
+			cell(strings.Join(containerPorts(c), ", ")),
+			cell(strings.Join(sortedKeys(mapAt(c, "inspect", "NetworkSettings", "Networks")), ", ")),
+			cpu, mem, cell(strings.Join(containerNotes(c), ", ")), fileLink(files, i))
+	}
+	b.WriteString("\n")
+}
+
+// containerNotes lists configuration facts relevant to security and
+// operations. They are facts, not verdicts: the reader decides.
+func containerNotes(c map[string]any) []string {
+	var notes []string
+	hc := mapAt(c, "inspect", "HostConfig")
+	if hc == nil {
+		return notes
+	}
+	if b, _ := hc["Privileged"].(bool); b {
+		notes = append(notes, "privileged")
+	}
+	for _, k := range []string{"NetworkMode", "PidMode", "IpcMode"} {
+		if str(hc[k]) == "host" {
+			notes = append(notes, strings.ToLower(strings.TrimSuffix(k, "Mode"))+"=host")
+		}
+	}
+	if caps := stringsOf(hc["CapAdd"]); len(caps) > 0 {
+		notes = append(notes, "cap_add="+strings.Join(caps, "+"))
+	}
+	if user := str(mapAt(c, "inspect", "Config")["User"]); user == "" || user == "root" || user == "0" || strings.HasPrefix(user, "0:") {
+		notes = append(notes, "runs as root")
+	}
+	if num(hc["Memory"]) == 0 {
+		notes = append(notes, "no memory limit")
+	}
+	if rp := str(mapAt(hc, "RestartPolicy")["Name"]); rp == "" || rp == "no" {
+		notes = append(notes, "no restart policy")
+	}
+	if b, _ := hc["ReadonlyRootfs"].(bool); b {
+		notes = append(notes, "read-only rootfs")
+	}
+	for _, mnt := range objects(at(c, "inspect", "Mounts")) {
+		if strings.HasSuffix(str(mnt["Source"]), "docker.sock") {
+			notes = append(notes, "docker socket mounted")
+			break
+		}
+	}
+	return notes
+}
+
+// containerPorts lists published ports as "hostIP:hostPort->port/proto".
+// Runtime bindings are used when available, configured ones otherwise.
+func containerPorts(c map[string]any) []string {
+	ports := mapAt(c, "inspect", "NetworkSettings", "Ports")
+	if len(ports) == 0 {
+		ports = mapAt(c, "inspect", "HostConfig", "PortBindings")
+	}
+	var out []string
+	for _, port := range sortedKeys(ports) {
+		bindings := objects(ports[port])
+		if len(bindings) == 0 {
+			continue // exposed but not published
+		}
+		for _, bnd := range bindings {
+			host := str(bnd["HostIp"])
+			if host == "" {
+				host = "0.0.0.0"
+			}
+			out = append(out, fmt.Sprintf("%s:%s->%s", host, str(bnd["HostPort"]), port))
+		}
+	}
+	return out
+}
+
+func writeMounts(b *strings.Builder, containers []map[string]any) {
+	type row struct{ container, typ, source, dest, mode string }
+	var rows []row
+	for _, c := range containers {
+		for _, mnt := range objects(at(c, "inspect", "Mounts")) {
+			mode := "ro"
+			if rw, _ := mnt["RW"].(bool); rw {
+				mode = "rw"
+			}
+			source := str(mnt["Source"])
+			if name := str(mnt["Name"]); name != "" && str(mnt["Type"]) == "volume" {
+				source = name
+			}
+			rows = append(rows, row{str(c["name"]), str(mnt["Type"]), source, str(mnt["Destination"]), mode})
+		}
+	}
+	if len(rows) == 0 {
+		return
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].container < rows[j].container })
+	b.WriteString("## Mounts\n\n| Container | Type | Source | Destination | Mode |\n|---|---|---|---|---|\n")
+	for _, r := range rows {
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", cell(r.container), cell(r.typ), cell(r.source), cell(r.dest), r.mode)
+	}
+	b.WriteString("\n")
+}
+
+func writeImages(b *strings.Builder, images []map[string]any, files []string) {
+	b.WriteString("## Images\n\n")
+	if len(images) == 0 {
+		b.WriteString("None.\n\n")
+		return
+	}
+	b.WriteString("| Tags | Size | Containers | Dangling | Created | File |\n|---|---|---|---|---|---|\n")
+	for i, img := range images {
+		tags := strings.Join(stringsOf(img["repo_tags"]), ", ")
+		if tags == "" {
+			tags = shortHex(str(img["id"]))
+		}
+		fmt.Fprintf(b, "| %s | %s | %d | %t | %s | %s |\n",
+			cell(tags), bytesHuman(num(img["size"])), int64(num(img["containers"])),
+			img["dangling"] == true, cell(dateOnly(str(img["created_at"]))), fileLink(files, i))
+	}
+	b.WriteString("\n")
+}
+
+func writeNetworks(b *strings.Builder, networks []map[string]any, files []string) {
+	b.WriteString("## Networks\n\n")
+	if len(networks) == 0 {
+		b.WriteString("None.\n\n")
+		return
+	}
+	b.WriteString("| Name | Driver | Scope | Subnets | Internal | Containers | File |\n|---|---|---|---|---|---|---|\n")
+	for i, n := range networks {
+		var members []string
+		for _, ep := range objects(n["containers"]) {
+			members = append(members, str(ep["name"]))
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %t | %s | %s |\n",
+			cell(n["name"]), cell(n["driver"]), cell(n["scope"]),
+			cell(strings.Join(stringsOf(n["subnets"]), ", ")), n["internal"] == true,
+			cell(strings.Join(members, ", ")), fileLink(files, i))
+	}
+	b.WriteString("\n")
+}
+
+// ---------- formatting helpers ----------
+
+// at follows a path of object keys and returns the value found, or nil.
+func at(v any, path ...string) any {
+	for _, k := range path {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		v = m[k]
+	}
+	return v
+}
+
+func mapAt(v any, path ...string) map[string]any {
+	m, _ := at(v, path...).(map[string]any)
+	return m
+}
+
+func num(v any) float64 {
+	f, _ := v.(float64) // encoding/json decodes every number as float64
+	return f
+}
+
+func countWhere(items []map[string]any, pred func(map[string]any) bool) int {
+	n := 0
+	for _, it := range items {
+		if pred(it) {
+			n++
+		}
+	}
+	return n
+}
+
+// cell renders a value for a Markdown table cell.
+func cell(v any) string {
+	var s string
+	switch t := v.(type) {
+	case nil:
+		s = ""
+	case string:
+		s = t
+	case float64:
+		s = fmt.Sprintf("%g", t)
+	default:
+		s = fmt.Sprint(t)
+	}
+	s = strings.ReplaceAll(oneLine(s), "|", `\|`)
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
+
+func fileLink(files []string, i int) string {
+	if i >= len(files) {
+		return "—"
+	}
+	return "`" + files[i] + "`"
+}
+
+func dateOnly(s string) string {
+	if len(s) >= 10 {
+		return s[:10]
+	}
+	return s
+}
+
+func bytesHuman(n float64) string {
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
+	i := 0
+	for n >= 1024 && i < len(units)-1 {
+		n /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%.0f %s", n, units[i])
+	}
+	return fmt.Sprintf("%.1f %s", n, units[i])
+}

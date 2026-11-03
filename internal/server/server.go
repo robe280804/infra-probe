@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/netseven/infra-probe/internal/export"
 	"github.com/netseven/infra-probe/internal/report"
 )
 
@@ -70,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /api/report", s.handleReport)
+	mux.HandleFunc("GET /api/export", s.handleExport)
 	mux.Handle("GET /", http.FileServerFS(ui))
 
 	return securityHeaders(mux)
@@ -85,6 +87,24 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// handleExport serves the report as a sanitized zip archive, ready to be given
+// to an AI assistant as context of the whole server.
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	rep := s.report(r.Context())
+
+	// Build the archive in memory so a failure can still produce a proper 500.
+	var buf bytes.Buffer
+	if err := export.Write(&buf, rep); err != nil {
+		http.Error(w, "cannot build export", http.StatusInternalServerError)
+		return
+	}
+	// FileName only contains [A-Za-z0-9._-], so it is safe inside the quotes.
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+export.FileName(rep)+`"`)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(buf.Bytes())
 }
