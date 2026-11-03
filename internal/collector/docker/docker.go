@@ -1,5 +1,5 @@
-// Package docker collects information about the containers, images and
-// networks managed by the local Docker daemon.
+// Package docker collects information about the containers, images, networks
+// and volumes managed by the local Docker daemon.
 package docker
 
 import (
@@ -14,6 +14,9 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 )
+
+// redacted replaces secret values (environment values, credentials in options).
+const redacted = "<redacted>"
 
 // dockerImageConfig is the type of image.InspectResponse.Config.
 type dockerImageConfig = dockerspec.DockerOCIImageConfig
@@ -73,6 +76,7 @@ type Result struct {
 	Containers []Container `json:"containers"`
 	Images     []Image     `json:"images"`
 	Networks   []Network   `json:"networks"`
+	Volumes    []Volume    `json:"volumes"`
 }
 
 // dockerAPI is the subset of the Docker client used by the collector.
@@ -85,6 +89,8 @@ type dockerAPI interface {
 	ImageInspect(ctx context.Context, imageID string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error)
 	NetworkInspect(ctx context.Context, networkID string, options client.NetworkInspectOptions) (client.NetworkInspectResult, error)
+	VolumeList(ctx context.Context, options client.VolumeListOptions) (client.VolumeListResult, error)
+	DiskUsage(ctx context.Context, options client.DiskUsageOptions) (client.DiskUsageResult, error)
 	Close() error
 }
 
@@ -101,8 +107,8 @@ func New() *Collector {
 
 func (c *Collector) Name() string { return "docker" }
 
-// Collect gathers every container (running or not) and every local image
-// known to the daemon. The daemon address comes from the environment
+// Collect gathers every container (running or not), local image, network and
+// volume known to the daemon. The daemon address comes from the environment
 // (DOCKER_HOST), falling back to the default local socket.
 func (c *Collector) Collect(ctx context.Context) (any, error) {
 	apiClient, err := c.newClient()
@@ -131,9 +137,18 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 		errs = append(errs, err)
 		networks = []Network{}
 	}
+	// Volumes are linked to containers through their mounts, so they come last.
+	// On a disk usage failure the volumes are still returned, without sizes.
+	volumes, err := collectVolumes(ctx, apiClient, containers)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if volumes == nil {
+		volumes = []Volume{}
+	}
 
 	errs = append(errs, itemErrors(containers, images, networks)...)
-	return Result{Containers: containers, Images: images, Networks: networks}, errors.Join(errs...)
+	return Result{Containers: containers, Images: images, Networks: networks, Volumes: volumes}, errors.Join(errs...)
 }
 
 // itemErrors turns the per-item failures (inspect/stats of one container,
@@ -281,7 +296,7 @@ func redactEnv(env []string) []string {
 	out := make([]string, len(env))
 	for i, kv := range env {
 		key, _, _ := strings.Cut(kv, "=")
-		out[i] = key + "=<redacted>"
+		out[i] = key + "=" + redacted
 	}
 	return out
 }

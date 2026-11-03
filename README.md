@@ -20,7 +20,7 @@ printed anyway.
 ./bin/infra-probe serve            # http://127.0.0.1:8080
 ```
 
-A read-only web UI (embedded in the binary) listing containers and images,
+A read-only web UI (embedded in the binary) listing containers, images, networks and volumes,
 with filter and full configuration detail. By default it listens on localhost
 only; there is no authentication, so do not expose it to the network (a warning
 is printed if you try). To reach it on a remote server use an SSH tunnel:

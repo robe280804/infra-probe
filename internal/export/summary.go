@@ -19,7 +19,8 @@ func readme(m *manifest) string {
 	fmt.Fprintf(&b, "Snapshot of the server `%s` taken by infra-probe %s at %s (UTC).\n\n",
 		orDash(m.Hostname), orDash(m.Version), m.GeneratedAt.UTC().Format("2006-01-02 15:04:05"))
 	b.WriteString("It describes the host and everything managed by its Docker daemon: containers\n" +
-		"(full configuration, mounts, ports, networks, live resource usage), images and networks.\n" +
+		"(full configuration, mounts, ports, networks, live resource usage), images, networks\n" +
+		"and volumes.\n" +
 		"It is meant to be given to an AI assistant or a reviewer as complete context of the server.\n\n")
 
 	b.WriteString("## How to read it\n\n")
@@ -29,7 +30,8 @@ func readme(m *manifest) string {
 		"   Docker inspect payload under `inspect` (field names as in the Docker Engine API).\n")
 	b.WriteString("4. `report.json`: the same data in a single file.\n\n")
 	b.WriteString("Items are linked by ID: `container.image_id` = `image.id`, " +
-		"`network.containers[].container_id` = `container.id`.\n\n")
+		"`network.containers[].container_id` = `container.id`, " +
+		"`volume.containers[].container_id` = `container.id`.\n\n")
 
 	b.WriteString("## Files\n\n")
 	for _, f := range m.Files {
@@ -83,16 +85,19 @@ func summary(s *summaryData) string {
 	containers := objects(dockerRes["containers"])
 	images := objects(dockerRes["images"])
 	networks := objects(dockerRes["networks"])
+	volumes := objects(dockerRes["volumes"])
+	unusedVolume := func(v map[string]any) bool { return len(objects(v["containers"])) == 0 }
 
-	fmt.Fprintf(&b, "## Docker at a glance\n\n- Containers: %d (%d running)\n- Images: %d (%d unused)\n- Networks: %d\n\n",
+	fmt.Fprintf(&b, "## Docker at a glance\n\n- Containers: %d (%d running)\n- Images: %d (%d unused)\n- Networks: %d\n- Volumes: %d (%d unused)\n\n",
 		len(containers), countWhere(containers, func(c map[string]any) bool { return str(c["state"]) == "running" }),
 		len(images), countWhere(images, func(i map[string]any) bool { return num(i["containers"]) == 0 }),
-		len(networks))
+		len(networks), len(volumes), countWhere(volumes, unusedVolume))
 
 	writeContainers(&b, containers, s.files["containers"])
 	writeMounts(&b, containers)
 	writeImages(&b, images, s.files["images"])
 	writeNetworks(&b, networks, s.files["networks"])
+	writeVolumes(&b, volumes, s.files["volumes"])
 	return b.String()
 }
 
@@ -248,6 +253,30 @@ func writeNetworks(b *strings.Builder, networks []map[string]any, files []string
 			cell(n["name"]), cell(n["driver"]), cell(n["scope"]),
 			cell(strings.Join(stringsOf(n["subnets"]), ", ")), n["internal"] == true,
 			cell(strings.Join(members, ", ")), fileLink(files, i))
+	}
+	b.WriteString("\n")
+}
+
+func writeVolumes(b *strings.Builder, volumes []map[string]any, files []string) {
+	b.WriteString("## Volumes\n\n")
+	if len(volumes) == 0 {
+		b.WriteString("None.\n\n")
+		return
+	}
+	b.WriteString("| Name | Size | Containers | Compose project | Driver | Anonymous | File |\n|---|---|---|---|---|---|---|\n")
+	for i, v := range volumes {
+		size := "unknown" // -1 or missing: non-local driver or disk usage failed
+		if n, ok := v["size"].(float64); ok && n >= 0 {
+			size = bytesHuman(n)
+		}
+		var users []string
+		for _, m := range objects(v["containers"]) {
+			users = append(users, str(m["container_name"])+":"+str(m["destination"]))
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %t | %s |\n",
+			cell(v["name"]), size, cell(strings.Join(users, ", ")),
+			cell(mapAt(v, "labels")["com.docker.compose.project"]), cell(v["driver"]),
+			v["anonymous"] == true, fileLink(files, i))
 	}
 	b.WriteString("\n")
 }

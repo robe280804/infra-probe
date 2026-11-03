@@ -7,7 +7,7 @@ collects facts about it and prints a JSON report.
 cmd/infra-probe          entry point: CLI parsing and wiring only
 internal/collector       Collector interface (one implementation per data source)
 internal/collector/host    host facts
-internal/collector/docker  containers + images (full inspect payloads)
+internal/collector/docker  containers, images, networks, volumes (full inspect payloads)
 internal/report          runs collectors, assembles and encodes the report
 internal/export          sanitized zip archive of a report (AI context export)
 internal/server          read-only HTTP API + embedded dashboard
@@ -33,7 +33,7 @@ data/             knowledge about the report
   findings.js       security/configuration facts derived from inspect data
 views/            one file per page
   shared.js         page frame, links, "not found"
-  overview.js  containers.js  container-detail.js  images.js  networks.js
+  overview.js  containers.js  container-detail.js  images.js  networks.js  volumes.js
 ```
 
 Dependencies only point downwards: `views` use `data` and `lib`; `data` and `lib`
@@ -75,7 +75,7 @@ To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.
 {
   "version": "1.2.3",
   "generated_at": "2026-11-03T10:00:00Z",
-  "results": { "host": {}, "docker": { "containers": [], "images": [] } },
+  "results": { "host": {}, "docker": { "containers": [], "images": [], "networks": [], "volumes": [] } },
   "errors": { "<collector>": "<message>" }
 }
 ```

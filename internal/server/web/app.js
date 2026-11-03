@@ -2,12 +2,13 @@
 
 import { h } from "./lib/dom.js";
 import { fmtDate } from "./lib/format.js";
-import { containersOf, imagesOf, networksOf } from "./data/report.js";
+import { containersOf, imagesOf, networksOf, volumesOf } from "./data/report.js";
 import { overview } from "./views/overview.js";
 import { containerList, defaultContainerFilters } from "./views/containers.js";
 import { containerDetail } from "./views/container-detail.js";
 import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
 import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
+import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
 const MAX_SAMPLES = 120;
 
@@ -15,7 +16,7 @@ const state = {
   report: null,
   error: null,
   // Filters live here, not in the views, so they survive refreshes and navigation.
-  filters: { containers: defaultContainerFilters(), images: defaultImageFilters(), networks: defaultNetworkFilters() },
+  filters: { containers: defaultContainerFilters(), images: defaultImageFilters(), networks: defaultNetworkFilters(), volumes: defaultVolumeFilters() },
   history: new Map(), // container id -> [{t, mem, cpu}] collected while the page is open
   timer: null,
 };
@@ -48,7 +49,7 @@ const NAV = [
   { section: "containers", label: "Containers", count: (r) => containersOf(r).length },
   { section: "images", label: "Images", count: (r) => imagesOf(r).length },
   { section: "networks", label: "Networks", count: (r) => networksOf(r).length },
-  { label: "Volumes", soon: true },
+  { section: "volumes", label: "Volumes", count: (r) => volumesOf(r).length },
   { label: "Security rules", soon: true },
 ];
 
@@ -92,6 +93,9 @@ function renderView(route) {
       break;
     case "networks":
       node = route.id ? networkDetail(state.report, route.id) : networkList(state.report, state.filters.networks);
+      break;
+    case "volumes":
+      node = route.id ? volumeDetail(state.report, route.id) : volumeList(state.report, state.filters.volumes);
       break;
     default:
       node = overview(state.report);

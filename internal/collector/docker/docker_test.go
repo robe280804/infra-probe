@@ -14,6 +14,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/api/types/volume"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -34,6 +35,12 @@ type fakeAPI struct {
 	networkEndpoints   map[string]map[string]network.EndpointResource // network ID -> container ID -> endpoint
 	networkInspectFail map[string]bool                                // network IDs whose inspect fails
 
+	volumes       []volume.Volume
+	volumeListErr error
+	diskUsage     []volume.Volume // volumes with UsageData, as returned by /system/df
+	diskUsageErr  error
+	mountsFor     map[string][]container.MountPoint // container ID -> mounts
+
 	closed bool
 }
 
@@ -48,7 +55,19 @@ func (f *fakeAPI) ContainerInspect(_ context.Context, id string, _ client.Contai
 	return client.ContainerInspectResult{Container: container.InspectResponse{
 		ID:     id,
 		Config: &container.Config{User: "app", Env: []string{"DB_PASSWORD=s3cret", "MODE=prod"}},
+		Mounts: f.mountsFor[id],
 	}}, nil
+}
+
+func (f *fakeAPI) VolumeList(context.Context, client.VolumeListOptions) (client.VolumeListResult, error) {
+	return client.VolumeListResult{Items: f.volumes}, f.volumeListErr
+}
+
+func (f *fakeAPI) DiskUsage(context.Context, client.DiskUsageOptions) (client.DiskUsageResult, error) {
+	if f.diskUsageErr != nil {
+		return client.DiskUsageResult{}, f.diskUsageErr
+	}
+	return client.DiskUsageResult{Volumes: client.VolumesDiskUsage{Items: f.diskUsage}}, nil
 }
 
 func (f *fakeAPI) ContainerStats(_ context.Context, id string, _ client.ContainerStatsOptions) (client.ContainerStatsResult, error) {

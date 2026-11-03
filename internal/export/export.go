@@ -28,6 +28,7 @@ var dockerSections = []struct {
 	{"containers", func(m map[string]any) string { return str(m["name"]) }},
 	{"images", imageFileLabel},
 	{"networks", func(m map[string]any) string { return str(m["name"]) }},
+	{"volumes", func(m map[string]any) string { return str(m["name"]) }},
 }
 
 // Write encodes r as a zip archive on w.
