@@ -54,6 +54,13 @@ func sampleReport() *report.Report {
 					map[string]any{"id": "nnnnnnnnnnnn", "name": "backend", "driver": "bridge",
 						"containers": []any{map[string]any{"container_id": "aaaaaaaaaaaa", "name": "db"}}},
 				},
+				"volumes": []any{
+					map[string]any{"name": "pgdata", "driver": "local", "size": 4096, "anonymous": false,
+						"labels":     map[string]any{"com.docker.compose.project": "app"},
+						"containers": []any{map[string]any{"container_id": "aaaaaaaaaaaa", "container_name": "db", "destination": "/data"}},
+						"inspect":    map[string]any{"Options": map[string]any{"o": "addr=nas,password=nfspass"}}},
+					map[string]any{"name": "orphan", "driver": "local", "size": -1, "containers": []any{}},
+				},
 			},
 		},
 		Errors: map[string]string{"docker": "container x: stats: timeout"},
@@ -101,6 +108,7 @@ func TestWrite_Layout(t *testing.T) {
 		"docker/containers/index.json", "docker/containers/db.json", "docker/containers/db-bbbbbbbbbbbb.json",
 		"docker/images/index.json", "docker/images/secret-app_1.0.json", "docker/images/fedcba987654.json",
 		"docker/networks/index.json", "docker/networks/backend.json",
+		"docker/volumes/index.json", "docker/volumes/pgdata.json", "docker/volumes/orphan.json",
 	}
 	for _, name := range want {
 		if _, ok := files[name]; !ok {
@@ -140,7 +148,7 @@ func TestWrite_IndexHasNoInspectAndPointsToFile(t *testing.T) {
 func TestWrite_NoSecretLeaks(t *testing.T) {
 	files := buildZip(t, sampleReport())
 
-	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret"}
+	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret", "nfspass"}
 	for name, body := range files {
 		for _, s := range secrets {
 			if strings.Contains(body, s) {
@@ -169,6 +177,9 @@ func TestWrite_Summary(t *testing.T) {
 		"0.0.0.0:5432->5432/tcp",
 		"`docker/containers/db.json`",
 		"| backend | bridge |",
+		"- Volumes: 2 (1 unused)",
+		"| pgdata | 4.0 KiB | db:/data | app | local | false | `docker/volumes/pgdata.json` |",
+		"| orphan | unknown |",
 		"## Collection errors",
 	} {
 		if !strings.Contains(sum, want) {
