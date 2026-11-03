@@ -310,7 +310,7 @@ details.table-view summary { cursor: pointer; }
 .chip { padding: 1px 8px; border-radius: 4px; background: var(--surface-2); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
 .risk { color: var(--bad-text); font-weight: 600; }
 .caution { color: var(--warn-text); font-weight: 600; }
-.banner { padding: 10px 14px; border: 1px solid var(--bad); border-radius: 6px; color: var(--bad-text); margin-bottom: 16px; }
+.banner { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 14px; border: 1px solid var(--bad); border-radius: 6px; color: var(--bad-text); margin-bottom: 16px; }
 details.raw pre {
   background: var(--surface-2);
   border-radius: 6px;

@@ -210,7 +210,18 @@ export function containerList(report, filters) {
   }));
 
   const columns = [
-    { title: "Name", render: ({ c }) => link(containerHref(c), c.name) },
+    {
+      title: "Name",
+      render: ({ c }) =>
+        h(
+          "span",
+          {},
+          link(containerHref(c), c.name),
+          // Per-item failures stay visible right in the list.
+          c.inspect_error ? [" ", badge("inspect failed", "bad")] : null,
+          c.stats_error ? [" ", badge("stats failed", "warn")] : null,
+        ),
+    },
     { title: "State", render: ({ c }) => stateBadge(c.state) },
     { title: "Health", render: ({ health }) => healthBadge(health) },
     { title: "Image", render: ({ c }) => c.image },
@@ -558,7 +569,11 @@ export function imageList(report, filters) {
   }));
 
   const columns = [
-    { title: "Tags", render: ({ i }) => link(imageHref(i), (i.repo_tags ?? []).join(", ") || "<none>") },
+    {
+      title: "Tags",
+      render: ({ i }) =>
+        h("span", {}, link(imageHref(i), (i.repo_tags ?? []).join(", ") || "<none>"), i.inspect_error ? [" ", badge("inspect failed", "bad")] : null),
+    },
     { title: "Size", num: true, render: ({ i }) => fmtBytes(i.size) },
     { title: "Used by", num: true, render: ({ i }) => String(i.containers) },
     { title: "Platform", render: ({ platform }) => platform },

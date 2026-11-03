@@ -18,7 +18,8 @@ type Report struct {
 }
 
 // Build runs every collector. A failing collector is recorded in Errors and
-// does not stop the others.
+// does not stop the others. A collector may return partial data together with
+// an error: both are kept, so a failure never hides what was collected.
 func Build(ctx context.Context, version string, collectors []collector.Collector) *Report {
 	r := &Report{
 		Version:     version,
@@ -30,9 +31,10 @@ func Build(ctx context.Context, version string, collectors []collector.Collector
 		data, err := c.Collect(ctx)
 		if err != nil {
 			r.Errors[c.Name()] = err.Error()
-			continue
 		}
-		r.Results[c.Name()] = data
+		if data != nil {
+			r.Results[c.Name()] = data
+		}
 	}
 	return r
 }
