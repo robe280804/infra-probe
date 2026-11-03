@@ -1,9 +1,10 @@
-// Package docker collects information about the containers and images managed
-// by the local Docker daemon.
+// Package docker collects information about the containers, images and
+// networks managed by the local Docker daemon.
 package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -71,6 +72,7 @@ type Image struct {
 type Result struct {
 	Containers []Container `json:"containers"`
 	Images     []Image     `json:"images"`
+	Networks   []Network   `json:"networks"`
 }
 
 // dockerAPI is the subset of the Docker client used by the collector.
@@ -81,6 +83,8 @@ type dockerAPI interface {
 	ContainerStats(ctx context.Context, containerID string, options client.ContainerStatsOptions) (client.ContainerStatsResult, error)
 	ImageList(ctx context.Context, options client.ImageListOptions) (client.ImageListResult, error)
 	ImageInspect(ctx context.Context, imageID string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error)
+	NetworkInspect(ctx context.Context, networkID string, options client.NetworkInspectOptions) (client.NetworkInspectResult, error)
 	Close() error
 }
 
@@ -108,15 +112,62 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 	// Closing a client we only read from cannot meaningfully fail.
 	defer func() { _ = apiClient.Close() }()
 
+	// Each part is collected independently: if one fails, the others are still
+	// returned and every failure is reported, none is swallowed.
+	var errs []error
+
 	containers, err := collectContainers(ctx, apiClient)
 	if err != nil {
-		return nil, err
+		errs = append(errs, err)
+		containers = []Container{}
 	}
 	images, err := collectImages(ctx, apiClient)
 	if err != nil {
-		return nil, err
+		errs = append(errs, err)
+		images = []Image{}
 	}
-	return Result{Containers: containers, Images: images}, nil
+	networks, err := collectNetworks(ctx, apiClient)
+	if err != nil {
+		errs = append(errs, err)
+		networks = []Network{}
+	}
+
+	errs = append(errs, itemErrors(containers, images, networks)...)
+	return Result{Containers: containers, Images: images, Networks: networks}, errors.Join(errs...)
+}
+
+// itemErrors turns the per-item failures (inspect/stats of one container,
+// inspect of one image or network) into errors, so they reach the report and
+// the exit code instead of staying buried in a field of the JSON.
+func itemErrors(containers []Container, images []Image, networks []Network) []error {
+	var errs []error
+	for _, c := range containers {
+		if c.InspectError != "" {
+			errs = append(errs, fmt.Errorf("container %s: inspect: %s", c.Name, c.InspectError))
+		}
+		if c.StatsError != "" {
+			errs = append(errs, fmt.Errorf("container %s: stats: %s", c.Name, c.StatsError))
+		}
+	}
+	for _, i := range images {
+		if i.InspectError != "" {
+			errs = append(errs, fmt.Errorf("image %s: inspect: %s", imageLabel(i), i.InspectError))
+		}
+	}
+	for _, n := range networks {
+		if n.InspectError != "" {
+			errs = append(errs, fmt.Errorf("network %s: inspect: %s", n.Name, n.InspectError))
+		}
+	}
+	return errs
+}
+
+// imageLabel is the first tag of an image, or its short ID when untagged.
+func imageLabel(i Image) string {
+	if len(i.RepoTags) > 0 {
+		return i.RepoTags[0]
+	}
+	return shortID(strings.TrimPrefix(i.ID, "sha256:"))
 }
 
 func collectContainers(ctx context.Context, apiClient dockerAPI) ([]Container, error) {

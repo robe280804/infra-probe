@@ -61,6 +61,21 @@ func TestBuild_FailureDoesNotStopOthers(t *testing.T) {
 	}
 }
 
+func TestBuild_PartialDataIsKeptWithTheError(t *testing.T) {
+	// A collector that gathered something before failing must not lose it,
+	// and its error must still be reported.
+	r := Build(context.Background(), "dev", []collector.Collector{
+		stubCollector{name: "partial", data: "some", err: errors.New("one part failed")},
+	})
+
+	if r.Results["partial"] != "some" {
+		t.Errorf("partial data dropped: Results = %v", r.Results)
+	}
+	if r.Errors["partial"] != "one part failed" {
+		t.Errorf("error not reported: Errors = %v", r.Errors)
+	}
+}
+
 func TestBuild_NoCollectors(t *testing.T) {
 	r := Build(context.Background(), "dev", nil)
 	if r.Results == nil || len(r.Results) != 0 {

@@ -12,10 +12,12 @@ import {
 export const dockerOf = (report) => report?.results?.docker ?? { containers: [], images: [] };
 export const containersOf = (report) => dockerOf(report).containers ?? [];
 export const imagesOf = (report) => dockerOf(report).images ?? [];
+export const networksOf = (report) => dockerOf(report).networks ?? [];
 
 const link = (hash, text) => h("a", { href: hash, text });
 const containerHref = (c) => `#/containers/${encodeURIComponent(c.id)}`;
 const imageHref = (i) => `#/images/${encodeURIComponent(i.id)}`;
+const networkHref = (n) => `#/networks/${encodeURIComponent(n.id)}`;
 
 const isRoot = (user) => !user || user === "root" || user === "0" || user.startsWith("0:") || user.startsWith("root:");
 const isAllInterfaces = (ip) => !ip || ip === "0.0.0.0" || ip === "::";
@@ -113,6 +115,7 @@ export function overview(report) {
       tile("Containers", String(containers.length), `${running.length} running`),
       tile("Stopped", String(containers.length - running.length)),
       tile("Images", String(images.length)),
+      tile("Networks", String(networksOf(report).length)),
       tile("Unused images", String(images.filter((i) => i.containers === 0).length), "not used by any container"),
       tile("With findings", String(withFindings.length), "containers to review"),
     ),
@@ -210,7 +213,18 @@ export function containerList(report, filters) {
   }));
 
   const columns = [
-    { title: "Name", render: ({ c }) => link(containerHref(c), c.name) },
+    {
+      title: "Name",
+      render: ({ c }) =>
+        h(
+          "span",
+          {},
+          link(containerHref(c), c.name),
+          // Per-item failures stay visible right in the list.
+          c.inspect_error ? [" ", badge("inspect failed", "bad")] : null,
+          c.stats_error ? [" ", badge("stats failed", "warn")] : null,
+        ),
+    },
     { title: "State", render: ({ c }) => stateBadge(c.state) },
     { title: "Health", render: ({ health }) => healthBadge(health) },
     { title: "Image", render: ({ c }) => c.image },
@@ -448,7 +462,13 @@ export function containerDetail(report, id, history) {
     "Network",
     table(
       [
-        { title: "Network", render: (n) => n.name },
+        {
+          title: "Network",
+          render: (n) => {
+            const known = networksOf(report).find((x) => x.name === n.name);
+            return known ? link(networkHref(known), n.name) : n.name;
+          },
+        },
         { title: "IP address", render: (n) => n.IPAddress || "—" },
         { title: "Gateway", render: (n) => n.Gateway || "—" },
         { title: "MAC", render: (n) => n.MacAddress || "—" },
@@ -558,7 +578,11 @@ export function imageList(report, filters) {
   }));
 
   const columns = [
-    { title: "Tags", render: ({ i }) => link(imageHref(i), (i.repo_tags ?? []).join(", ") || "<none>") },
+    {
+      title: "Tags",
+      render: ({ i }) =>
+        h("span", {}, link(imageHref(i), (i.repo_tags ?? []).join(", ") || "<none>"), i.inspect_error ? [" ", badge("inspect failed", "bad")] : null),
+    },
     { title: "Size", num: true, render: ({ i }) => fmtBytes(i.size) },
     { title: "Used by", num: true, render: ({ i }) => String(i.containers) },
     { title: "Platform", render: ({ platform }) => platform },
@@ -715,6 +739,195 @@ export function imageDetail(report, id) {
     ),
     card("Layers", table([{ title: "Digest", render: (l) => h("span", { class: "mono", text: l }) }], layers, { empty: "No layer information." })),
     rawJson("Raw inspect JSON", inspect),
+  );
+}
+
+// ---------- networks ----------
+
+export const defaultNetworkFilters = () => ({
+  q: "",
+  driver: "all",
+  scope: "all",
+  kind: "all",
+  usage: "all",
+  isolation: "all",
+  sort: "name",
+});
+
+const NETWORK_SORTS = {
+  name: (a, b) => a.name.localeCompare(b.name),
+  containers: (a, b) => b.containers.length - a.containers.length,
+  created: (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+};
+
+function networkMatches(n, f) {
+  const q = f.q.trim().toLowerCase();
+  if (q && ![n.name, n.id, ...(n.subnets ?? [])].some((v) => String(v).toLowerCase().includes(q))) return false;
+  if (f.driver !== "all" && n.driver !== f.driver) return false;
+  if (f.scope !== "all" && n.scope !== f.scope) return false;
+  if (f.kind === "builtin" && !n.builtin) return false;
+  if (f.kind === "custom" && n.builtin) return false;
+  if (f.usage === "used" && n.containers.length === 0) return false;
+  if (f.usage === "empty" && n.containers.length > 0) return false;
+  if (f.isolation === "internal" && !n.internal) return false;
+  if (f.isolation === "external" && n.internal) return false;
+  return true;
+}
+
+/** Badges describing a network; always icon + label. */
+function networkFlags(n) {
+  return [
+    n.builtin ? badge("built-in") : null,
+    n.internal ? badge("internal only", "ok") : null,
+    n.driver === "host" ? badge("shares host network", "warn") : null,
+    !n.builtin && n.containers.length === 0 ? badge("no containers", "warn") : null,
+    n.ipv6 ? badge("IPv6") : null,
+    n.inspect_error ? badge("inspect failed", "bad") : null,
+  ];
+}
+
+export function networkList(report, filters) {
+  const defaults = defaultNetworkFilters();
+  const rows = networksOf(report);
+
+  const columns = [
+    { title: "Name", render: (n) => link(networkHref(n), n.name) },
+    { title: "Driver", render: (n) => n.driver },
+    { title: "Scope", render: (n) => n.scope },
+    { title: "Subnets", render: (n) => chips(n.subnets) },
+    { title: "Containers", num: true, render: (n) => String(n.containers.length) },
+    { title: "Flags", render: (n) => h("div", { class: "badges" }, networkFlags(n)) },
+    { title: "ID", render: (n) => h("span", { class: "mono", text: n.id }) },
+    { title: "Created", render: (n) => fmtDate(n.created_at) },
+  ];
+
+  const results = h("div");
+  const update = () => {
+    const shown = rows.filter((n) => networkMatches(n, filters)).sort(NETWORK_SORTS[filters.sort] ?? NETWORK_SORTS.name);
+    results.replaceChildren(
+      h("p", { class: "subtitle", text: `${shown.length} of ${rows.length} networks shown` }),
+      card(null, table(columns, shown, { href: networkHref, empty: "No networks match the filters." })),
+    );
+  };
+
+  const bar = filterBar(
+    [
+      { key: "q", type: "search", label: "Search", placeholder: "Name, ID or subnet…" },
+      { key: "driver", type: "select", label: "Driver", options: countedOptions("All drivers", countBy(rows, (n) => n.driver)) },
+      { key: "scope", type: "select", label: "Scope", options: countedOptions("All scopes", countBy(rows, (n) => n.scope)) },
+      {
+        key: "kind", type: "select", label: "Type",
+        options: [
+          { value: "all", label: "Any" },
+          { value: "builtin", label: "Built-in" },
+          { value: "custom", label: "Custom" },
+        ],
+      },
+      {
+        key: "usage", type: "select", label: "Usage",
+        options: [
+          { value: "all", label: "Any" },
+          { value: "used", label: "With containers" },
+          { value: "empty", label: "Empty" },
+        ],
+      },
+      {
+        key: "isolation", type: "select", label: "Isolation",
+        options: [
+          { value: "all", label: "Any" },
+          { value: "internal", label: "Internal only" },
+          { value: "external", label: "Reachable from outside" },
+        ],
+      },
+      {
+        key: "sort", type: "select", label: "Sort by",
+        options: [
+          { value: "name", label: "Name" },
+          { value: "containers", label: "Most containers" },
+          { value: "created", label: "Newest first" },
+        ],
+      },
+    ],
+    filters,
+    defaults,
+    update,
+  );
+
+  update();
+  return page("Networks", null, bar, results);
+}
+
+export function networkDetail(report, id) {
+  const net = networksOf(report).find((n) => n.id === id);
+  if (!net) return notFound("network", "#/networks");
+
+  const inspect = net.inspect;
+  const containers = containersOf(report);
+
+  const head = h(
+    "div",
+    {},
+    link("#/networks", "← Networks"),
+    h("div", { class: "page-head" }, h("h1", { text: net.name }), h("div", { class: "badges" }, networkFlags(net))),
+    h("p", { class: "subtitle" }, h("span", { class: "mono", text: inspect?.Id ?? net.id })),
+  );
+
+  const failure = net.inspect_error ? h("div", { class: "banner", text: `Details unavailable: ${net.inspect_error}` }) : null;
+
+  const attached = card(
+    "Attached containers",
+    table(
+      [
+        {
+          title: "Container",
+          render: (e) => {
+            const c = containers.find((x) => x.id === e.container_id);
+            return c ? link(containerHref(c), c.name) : e.name || e.container_id;
+          },
+        },
+        { title: "State", render: (e) => { const c = containers.find((x) => x.id === e.container_id); return c ? stateBadge(c.state) : "—"; } },
+        { title: "IPv4", render: (e) => e.ipv4 || "—" },
+        { title: "IPv6", render: (e) => e.ipv6 || "—" },
+        { title: "MAC", render: (e) => e.mac || "—" },
+      ],
+      net.containers,
+      { empty: net.inspect_error ? "Unknown: the network could not be inspected." : "No container is attached to this network." },
+    ),
+  );
+
+  const config = card("Configuration", kv([
+    ["Driver", net.driver],
+    ["Scope", net.scope],
+    ["Created", fmtDate(net.created_at)],
+    ["Internal only", yesNo(net.internal)],
+    ["Attachable", yesNo(net.attachable)],
+    ["Ingress", yesNo(net.ingress)],
+    ["IPv6 enabled", yesNo(net.ipv6)],
+    ["IPAM driver", inspect?.IPAM?.Driver],
+    ["Subnets", chips(net.subnets)],
+    ["Gateways", chips(net.gateways)],
+  ]));
+
+  const pairs = (obj) => Object.entries(obj ?? {});
+  const keyValue = (title, obj, empty) =>
+    card(title, table([{ title: "Key", render: ([k]) => h("span", { class: "mono", text: k }) }, { title: "Value", render: ([, v]) => v }], pairs(obj), { empty }));
+
+  return h(
+    "div",
+    {},
+    head,
+    failure,
+    h(
+      "div",
+      { class: "tiles" },
+      tile("Containers", String(net.containers.length)),
+      tile("Subnets", String(net.subnets.length)),
+      tile("Driver", net.driver),
+      tile("Scope", net.scope),
+    ),
+    h("div", { class: "grid" }, config, attached),
+    h("div", { class: "grid" }, keyValue("Driver options", inspect?.Options, "No options."), keyValue("Labels", inspect?.Labels, "No labels.")),
+    inspect ? rawJson("Raw inspect JSON", inspect) : null,
   );
 }
 

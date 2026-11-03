@@ -7,11 +7,13 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -26,6 +28,11 @@ type fakeAPI struct {
 	images         []image.Summary
 	imageListErr   error
 	imageInspectFn func(id string) (image.InspectResponse, error)
+
+	networks           []network.Summary
+	networkListErr     error
+	networkEndpoints   map[string]map[string]network.EndpointResource // network ID -> container ID -> endpoint
+	networkInspectFail map[string]bool                                // network IDs whose inspect fails
 
 	closed bool
 }
@@ -57,6 +64,25 @@ func (f *fakeAPI) ContainerStats(_ context.Context, id string, _ client.Containe
 		return client.ContainerStatsResult{}, err
 	}
 	return client.ContainerStatsResult{Body: io.NopCloser(bytes.NewReader(body))}, nil
+}
+
+func (f *fakeAPI) NetworkList(context.Context, client.NetworkListOptions) (client.NetworkListResult, error) {
+	return client.NetworkListResult{Items: f.networks}, f.networkListErr
+}
+
+func (f *fakeAPI) NetworkInspect(_ context.Context, id string, _ client.NetworkInspectOptions) (client.NetworkInspectResult, error) {
+	if f.networkInspectFail[id] {
+		return client.NetworkInspectResult{}, errors.New("no such network")
+	}
+	for _, s := range f.networks {
+		if s.ID == id {
+			return client.NetworkInspectResult{Network: network.Inspect{
+				Network:    s.Network,
+				Containers: f.networkEndpoints[id],
+			}}, nil
+		}
+	}
+	return client.NetworkInspectResult{}, errors.New("no such network")
 }
 
 func (f *fakeAPI) ImageList(context.Context, client.ImageListOptions) (client.ImageListResult, error) {
@@ -185,15 +211,19 @@ func TestCollect_EnvIsRedacted(t *testing.T) {
 	}
 }
 
-func TestCollect_ContainerInspectFailureIsIsolated(t *testing.T) {
+func TestCollect_ContainerInspectFailureIsIsolatedButReported(t *testing.T) {
 	api := &fakeAPI{
-		containers:     []container.Summary{{ID: "gone"}, {ID: "ok"}},
+		containers:     []container.Summary{{ID: "gone", Names: []string{"/vanished"}}, {ID: "ok"}},
 		inspectFailFor: map[string]bool{"gone": true},
 	}
 
 	got, err := newTestCollector(api, nil).Collect(context.Background())
-	if err != nil {
-		t.Fatalf("Collect() must not fail when a single inspect fails: %v", err)
+	// The failure is reported, naming the container, and the data is kept.
+	if err == nil || !strings.Contains(err.Error(), "container vanished: inspect: no such container") {
+		t.Fatalf("Collect() error = %v, want it to report the failed inspect", err)
+	}
+	if got == nil {
+		t.Fatal("partial data must be returned together with the error")
 	}
 	cs := got.(Result).Containers
 
@@ -205,9 +235,9 @@ func TestCollect_ContainerInspectFailureIsIsolated(t *testing.T) {
 	}
 }
 
-func TestCollect_ImageInspectFailureIsIsolated(t *testing.T) {
+func TestCollect_ImageInspectFailureIsIsolatedButReported(t *testing.T) {
 	api := &fakeAPI{
-		images: []image.Summary{{ID: "bad"}, {ID: "good"}},
+		images: []image.Summary{{ID: "bad", RepoTags: []string{"app:1"}}, {ID: "good"}},
 		imageInspectFn: func(id string) (image.InspectResponse, error) {
 			if id == "bad" {
 				return image.InspectResponse{}, errors.New("boom")
@@ -217,8 +247,8 @@ func TestCollect_ImageInspectFailureIsIsolated(t *testing.T) {
 	}
 
 	got, err := newTestCollector(api, nil).Collect(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "image app:1: inspect: boom") {
+		t.Fatalf("Collect() error = %v, want it to report the failed inspect", err)
 	}
 	imgs := got.(Result).Images
 
@@ -248,6 +278,87 @@ func TestCollect_Errors(t *testing.T) {
 	}
 }
 
+func TestCollect_PartialFailureKeepsTheRestAndReportsEveryError(t *testing.T) {
+	api := &fakeAPI{
+		containers:     []container.Summary{{ID: "c1", Names: []string{"/web"}}},
+		images:         []image.Summary{{ID: "sha256:aaa"}},
+		networkListErr: errors.New("networks denied"),
+		imageListErr:   errors.New("images denied"),
+	}
+
+	got, err := newTestCollector(api, nil).Collect(context.Background())
+
+	// Both failures are reported...
+	if err == nil {
+		t.Fatal("Collect() error = nil, want the failures")
+	}
+	for _, want := range []string{"list images", "images denied", "list networks", "networks denied"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	// ...and what could be collected is still returned.
+	res, ok := got.(Result)
+	if !ok {
+		t.Fatalf("partial data not returned: %T", got)
+	}
+	if len(res.Containers) != 1 || res.Containers[0].Name != "web" {
+		t.Errorf("containers lost because another part failed: %+v", res.Containers)
+	}
+	if res.Images == nil || res.Networks == nil {
+		t.Error("failed parts must be empty non-nil slices")
+	}
+}
+
+func TestCollect_ListErrorIsNotSwallowed(t *testing.T) {
+	api := &fakeAPI{listErr: errors.New("containers denied"), images: []image.Summary{{ID: "sha256:aaa"}}}
+
+	got, err := newTestCollector(api, nil).Collect(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "containers denied") {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if len(got.(Result).Images) != 1 {
+		t.Error("images lost because the container list failed")
+	}
+}
+
+func TestItemErrors(t *testing.T) {
+	errs := itemErrors(
+		[]Container{
+			{Name: "a", InspectError: "i1", StatsError: "s1"},
+			{Name: "ok"},
+		},
+		[]Image{
+			{ID: "sha256:0123456789abcdef", InspectError: "i2"},
+			{RepoTags: []string{"app:1"}, InspectError: "i3"},
+		},
+		[]Network{{Name: "net", InspectError: "i4"}},
+	)
+
+	want := []string{
+		"container a: inspect: i1",
+		"container a: stats: s1",
+		"image 0123456789ab: inspect: i2",
+		"image app:1: inspect: i3",
+		"network net: inspect: i4",
+	}
+	if len(errs) != len(want) {
+		t.Fatalf("got %d errors %v, want %d", len(errs), errs, len(want))
+	}
+	for i := range want {
+		if errs[i].Error() != want[i] {
+			t.Errorf("error %d = %q, want %q", i, errs[i], want[i])
+		}
+	}
+}
+
+func TestItemErrors_NoneWhenEverythingWorked(t *testing.T) {
+	if errs := itemErrors([]Container{{Name: "a"}}, []Image{{ID: "x"}}, []Network{{Name: "n"}}); len(errs) != 0 {
+		t.Errorf("itemErrors() = %v, want none", errs)
+	}
+}
+
 func TestCollect_EmptyDaemonYieldsEmptyListsNotNil(t *testing.T) {
 	got, err := newTestCollector(&fakeAPI{}, nil).Collect(context.Background())
 	if err != nil {
@@ -256,8 +367,8 @@ func TestCollect_EmptyDaemonYieldsEmptyListsNotNil(t *testing.T) {
 	res := got.(Result)
 	// Non-nil slices serialize to [] instead of null, which is friendlier
 	// for any consumer of the JSON.
-	if res.Containers == nil || res.Images == nil {
-		t.Errorf("expected empty non-nil slices, got containers=%v images=%v", res.Containers, res.Images)
+	if res.Containers == nil || res.Images == nil || res.Networks == nil {
+		t.Errorf("expected empty non-nil slices, got containers=%v images=%v networks=%v", res.Containers, res.Images, res.Networks)
 	}
 }
 
