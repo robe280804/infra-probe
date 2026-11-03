@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/netseven/infra-probe/internal/collector"
+	"github.com/netseven/infra-probe/internal/collector/docker"
 	"github.com/netseven/infra-probe/internal/collector/host"
 	"github.com/netseven/infra-probe/internal/report"
 )
@@ -45,7 +46,7 @@ func runScan(args []string) int {
 
 	collectors := []collector.Collector{
 		host.New(),
-		// docker.New() comes next
+		docker.New(),
 	}
 
 	r := report.Build(ctx, version, collectors)
