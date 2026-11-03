@@ -93,12 +93,97 @@ func summary(s *summaryData) string {
 		len(images), countWhere(images, func(i map[string]any) bool { return num(i["containers"]) == 0 }),
 		len(networks), len(volumes), countWhere(volumes, unusedVolume))
 
+	writeDaemon(&b, mapAt(dockerRes, "daemon"))
 	writeContainers(&b, containers, s.files["containers"])
 	writeMounts(&b, containers)
 	writeImages(&b, images, s.files["images"])
 	writeNetworks(&b, networks, s.files["networks"])
 	writeVolumes(&b, volumes, s.files["volumes"])
 	return b.String()
+}
+
+// writeDaemon summarizes how the Docker daemon is set up. The full data is in
+// docker/daemon.json.
+func writeDaemon(b *strings.Builder, daemon map[string]any) {
+	if daemon == nil {
+		return
+	}
+	b.WriteString("## Docker daemon\n\nFull data: `docker/daemon.json`.\n\n")
+
+	if v := mapAt(daemon, "version"); v != nil {
+		fmt.Fprintf(b, "- **Engine**: %s (API %s, minimum %s), %s/%s\n",
+			cell(v["version"]), cell(v["api_version"]), cell(v["min_api_version"]), cell(v["os"]), cell(v["arch"]))
+		var comps []string
+		for _, c := range objects(v["components"]) {
+			comps = append(comps, str(c["name"])+" "+str(c["version"]))
+		}
+		if len(comps) > 0 {
+			fmt.Fprintf(b, "- **Components**: %s\n", strings.Join(comps, ", "))
+		}
+	}
+
+	if i := mapAt(daemon, "info"); i != nil {
+		fmt.Fprintf(b, "- **Host as seen by Docker**: %s, %s, kernel %s, %g CPUs, %s RAM\n",
+			cell(i["operating_system"]), cell(i["architecture"]), cell(i["kernel_version"]), num(i["ncpu"]), bytesHuman(num(i["mem_total"])))
+		fmt.Fprintf(b, "- **Docker root dir**: `%s`\n", str(i["docker_root_dir"]))
+		fmt.Fprintf(b, "- **Storage driver**: %s\n", cell(i["storage_driver"]))
+		fmt.Fprintf(b, "- **Logging driver**: %s\n", cell(i["logging_driver"]))
+		fmt.Fprintf(b, "- **Cgroup**: driver %s, version %s\n", cell(i["cgroup_driver"]), cell(i["cgroup_version"]))
+		fmt.Fprintf(b, "- **Runtimes**: %s (default %s)\n", cell(strings.Join(stringsOf(i["runtimes"]), ", ")), cell(i["default_runtime"]))
+		fmt.Fprintf(b, "- **Live restore**: %t, **rootless**: %t, **debug**: %t, **experimental**: %t\n",
+			i["live_restore"] == true, i["rootless"] == true, i["debug"] == true, i["experimental"] == true)
+		fmt.Fprintf(b, "- **Security options**: %s\n", cell(strings.Join(stringsOf(i["security_options"]), "; ")))
+		if fw := str(i["firewall_backend"]); fw != "" {
+			fmt.Fprintf(b, "- **Firewall backend**: %s\n", fw)
+		}
+
+		reg := mapAt(i, "registry")
+		var insecure []string
+		insecure = append(insecure, stringsOf(reg["insecure_cidrs"])...)
+		for _, idx := range objects(reg["indexes"]) {
+			if idx["secure"] == false {
+				insecure = append(insecure, str(idx["name"]))
+			}
+		}
+		fmt.Fprintf(b, "- **Insecure registries/networks**: %s\n", cell(strings.Join(insecure, ", ")))
+		fmt.Fprintf(b, "- **Registry mirrors**: %s\n", cell(strings.Join(stringsOf(reg["mirrors"]), ", ")))
+		if p := mapAt(i, "proxy"); len(p) > 0 {
+			fmt.Fprintf(b, "- **Proxy**: http %s, https %s, no_proxy %s\n", cell(p["http"]), cell(p["https"]), cell(p["no_proxy"]))
+		}
+		sw := mapAt(i, "swarm")
+		fmt.Fprintf(b, "- **Swarm**: %s", cell(sw["state"]))
+		if str(sw["state"]) == "active" {
+			role := "worker"
+			if sw["control_available"] == true {
+				role = "manager"
+			}
+			fmt.Fprintf(b, " (%s, %g nodes)", role, num(sw["nodes"]))
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(b, "- **Daemon labels**: %s\n", cell(strings.Join(stringsOf(i["labels"]), ", ")))
+		if warns := stringsOf(i["warnings"]); len(warns) > 0 {
+			b.WriteString("- **Daemon warnings**:\n")
+			for _, w := range warns {
+				fmt.Fprintf(b, "  - %s\n", oneLine(w))
+			}
+		}
+	}
+
+	if cfg := mapAt(daemon, "config"); cfg != nil {
+		fmt.Fprintf(b, "- **daemon.json**: `%s`, keys: %s\n", str(cfg["path"]), cell(strings.Join(sortedKeys(mapAt(cfg, "content")), ", ")))
+	} else {
+		b.WriteString("- **daemon.json**: not found (defaults apply, or the daemon is not on this machine)\n")
+	}
+
+	if du := mapAt(daemon, "disk_usage"); du != nil {
+		b.WriteString("\n### Docker disk usage\n\n| Kind | Total | Active | Size | Reclaimable |\n|---|---|---|---|---|\n")
+		for _, k := range []struct{ key, label string }{{"images", "Images"}, {"containers", "Containers"}, {"volumes", "Volumes"}, {"build_cache", "Build cache"}} {
+			t := mapAt(du, k.key)
+			fmt.Fprintf(b, "| %s | %g | %g | %s | %s |\n", k.label, num(t["total"]), num(t["active"]), bytesHuman(num(t["size"])), bytesHuman(num(t["reclaimable"])))
+		}
+		fmt.Fprintf(b, "\nTotal %s, of which %s reclaimable.\n", bytesHuman(num(du["total_size"])), bytesHuman(num(du["reclaimable"])))
+	}
+	b.WriteString("\n")
 }
 
 func writeContainers(b *strings.Builder, containers []map[string]any, files []string) {

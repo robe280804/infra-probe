@@ -19,6 +19,31 @@ func sampleReport() *report.Report {
 		Results: map[string]any{
 			"host": map[string]any{"hostname": "web01", "os": "linux", "num_cpu": 4},
 			"docker": map[string]any{
+				"daemon": map[string]any{
+					"version": map[string]any{"version": "27.3.1", "api_version": "1.47", "min_api_version": "1.24", "os": "linux", "arch": "amd64",
+						"components": []any{map[string]any{"name": "runc", "version": "1.1.14"}}},
+					"info": map[string]any{
+						"operating_system": "Ubuntu 24.04", "architecture": "x86_64", "kernel_version": "6.8.0", "ncpu": 4, "mem_total": 8589934592,
+						"docker_root_dir": "/var/lib/docker", "storage_driver": "overlay2", "logging_driver": "json-file",
+						"cgroup_driver": "systemd", "cgroup_version": "2", "default_runtime": "runc", "runtimes": []any{"runc"},
+						"live_restore": false, "security_options": []any{"name=seccomp,profile=builtin"},
+						"registry": map[string]any{"insecure_cidrs": []any{"10.0.0.0/8"}, "mirrors": []any{},
+							"indexes": []any{map[string]any{"name": "registry.corp", "secure": false}}},
+						"proxy":    map[string]any{"http": "http://u:daemonproxypw@proxy:3128"},
+						"swarm":    map[string]any{"state": "active", "control_available": true, "nodes": 3},
+						"labels":   []any{"env=prod"},
+						"warnings": []any{"API is accessible on http://0.0.0.0:2375 without encryption."},
+					},
+					"disk_usage": map[string]any{
+						"images":      map[string]any{"total": 12, "active": 3, "size": 1048576, "reclaimable": 524288},
+						"containers":  map[string]any{"total": 5, "active": 3, "size": 0, "reclaimable": 0},
+						"volumes":     map[string]any{"total": 2, "active": 1, "size": 0, "reclaimable": 0},
+						"build_cache": map[string]any{"total": 0, "active": 0, "size": 0, "reclaimable": 0},
+						"total_size":  1048576, "reclaimable": 524288,
+					},
+					"config": map[string]any{"path": "/etc/docker/daemon.json",
+						"content": map[string]any{"log-opts": map[string]any{"splunk-token": "daemontok"}, "live-restore": false}},
+				},
 				"containers": []any{
 					map[string]any{
 						"id": "aaaaaaaaaaaa", "name": "db", "image": "postgres:16", "state": "running", "status": "Up 2 days",
@@ -108,7 +133,7 @@ func TestWrite_Layout(t *testing.T) {
 		"docker/containers/index.json", "docker/containers/db.json", "docker/containers/db-bbbbbbbbbbbb.json",
 		"docker/images/index.json", "docker/images/secret-app_1.0.json", "docker/images/fedcba987654.json",
 		"docker/networks/index.json", "docker/networks/backend.json",
-		"docker/volumes/index.json", "docker/volumes/pgdata.json", "docker/volumes/orphan.json",
+		"docker/daemon.json", "docker/volumes/index.json", "docker/volumes/pgdata.json", "docker/volumes/orphan.json",
 	}
 	for _, name := range want {
 		if _, ok := files[name]; !ok {
@@ -148,7 +173,7 @@ func TestWrite_IndexHasNoInspectAndPointsToFile(t *testing.T) {
 func TestWrite_NoSecretLeaks(t *testing.T) {
 	files := buildZip(t, sampleReport())
 
-	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret", "nfspass"}
+	secrets := []string{"hunter2", "abc123", "tok-xyz", "s3cr3t", "topsecret", "nfspass", "daemontok", "daemonproxypw"}
 	for name, body := range files {
 		for _, s := range secrets {
 			if strings.Contains(body, s) {
@@ -185,6 +210,47 @@ func TestWrite_Summary(t *testing.T) {
 		if !strings.Contains(sum, want) {
 			t.Errorf("SUMMARY.md lacks %q", want)
 		}
+	}
+}
+
+func TestWrite_DaemonSummary(t *testing.T) {
+	files := buildZip(t, sampleReport())
+	sum := files["SUMMARY.md"]
+
+	for _, want := range []string{
+		"## Docker daemon",
+		"**Engine**: 27.3.1 (API 1.47, minimum 1.24), linux/amd64",
+		"**Components**: runc 1.1.14",
+		"**Storage driver**: overlay2",
+		"**Logging driver**: json-file",
+		"**Cgroup**: driver systemd, version 2",
+		"**Live restore**: false",
+		"**Insecure registries/networks**: 10.0.0.0/8, registry.corp",
+		"http http://u:<redacted>@proxy:3128",
+		"**Swarm**: active (manager, 3 nodes)",
+		"API is accessible on http://0.0.0.0:2375 without encryption.",
+		"**daemon.json**: `/etc/docker/daemon.json`, keys: live-restore, log-opts",
+		"| Images | 12 | 3 | 1.0 MiB | 512.0 KiB |",
+	} {
+		if !strings.Contains(sum, want) {
+			t.Errorf("SUMMARY.md lacks %q", want)
+		}
+	}
+	if !strings.Contains(files["docker/daemon.json"], `"splunk-token": "<redacted>"`) {
+		t.Error("daemon.json file does not keep the redacted option")
+	}
+}
+
+func TestWrite_NoDaemonSection(t *testing.T) {
+	r := sampleReport()
+	delete(r.Results["docker"].(map[string]any), "daemon")
+	files := buildZip(t, r)
+
+	if _, ok := files["docker/daemon.json"]; ok {
+		t.Error("daemon.json written without daemon data")
+	}
+	if strings.Contains(files["SUMMARY.md"], "## Docker daemon") {
+		t.Error("summary has a daemon section without daemon data")
 	}
 }
 
