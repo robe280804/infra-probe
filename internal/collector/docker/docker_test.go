@@ -12,6 +12,7 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -26,6 +27,11 @@ type fakeAPI struct {
 	images         []image.Summary
 	imageListErr   error
 	imageInspectFn func(id string) (image.InspectResponse, error)
+
+	networks           []network.Summary
+	networkListErr     error
+	networkEndpoints   map[string]map[string]network.EndpointResource // network ID -> container ID -> endpoint
+	networkInspectFail map[string]bool                                // network IDs whose inspect fails
 
 	closed bool
 }
@@ -57,6 +63,25 @@ func (f *fakeAPI) ContainerStats(_ context.Context, id string, _ client.Containe
 		return client.ContainerStatsResult{}, err
 	}
 	return client.ContainerStatsResult{Body: io.NopCloser(bytes.NewReader(body))}, nil
+}
+
+func (f *fakeAPI) NetworkList(context.Context, client.NetworkListOptions) (client.NetworkListResult, error) {
+	return client.NetworkListResult{Items: f.networks}, f.networkListErr
+}
+
+func (f *fakeAPI) NetworkInspect(_ context.Context, id string, _ client.NetworkInspectOptions) (client.NetworkInspectResult, error) {
+	if f.networkInspectFail[id] {
+		return client.NetworkInspectResult{}, errors.New("no such network")
+	}
+	for _, s := range f.networks {
+		if s.ID == id {
+			return client.NetworkInspectResult{Network: network.Inspect{
+				Network:    s.Network,
+				Containers: f.networkEndpoints[id],
+			}}, nil
+		}
+	}
+	return client.NetworkInspectResult{}, errors.New("no such network")
 }
 
 func (f *fakeAPI) ImageList(context.Context, client.ImageListOptions) (client.ImageListResult, error) {
@@ -256,8 +281,8 @@ func TestCollect_EmptyDaemonYieldsEmptyListsNotNil(t *testing.T) {
 	res := got.(Result)
 	// Non-nil slices serialize to [] instead of null, which is friendlier
 	// for any consumer of the JSON.
-	if res.Containers == nil || res.Images == nil {
-		t.Errorf("expected empty non-nil slices, got containers=%v images=%v", res.Containers, res.Images)
+	if res.Containers == nil || res.Images == nil || res.Networks == nil {
+		t.Errorf("expected empty non-nil slices, got containers=%v images=%v networks=%v", res.Containers, res.Images, res.Networks)
 	}
 }
 

@@ -1,5 +1,5 @@
-// Package docker collects information about the containers and images managed
-// by the local Docker daemon.
+// Package docker collects information about the containers, images and
+// networks managed by the local Docker daemon.
 package docker
 
 import (
@@ -71,6 +71,7 @@ type Image struct {
 type Result struct {
 	Containers []Container `json:"containers"`
 	Images     []Image     `json:"images"`
+	Networks   []Network   `json:"networks"`
 }
 
 // dockerAPI is the subset of the Docker client used by the collector.
@@ -81,6 +82,8 @@ type dockerAPI interface {
 	ContainerStats(ctx context.Context, containerID string, options client.ContainerStatsOptions) (client.ContainerStatsResult, error)
 	ImageList(ctx context.Context, options client.ImageListOptions) (client.ImageListResult, error)
 	ImageInspect(ctx context.Context, imageID string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	NetworkList(ctx context.Context, options client.NetworkListOptions) (client.NetworkListResult, error)
+	NetworkInspect(ctx context.Context, networkID string, options client.NetworkInspectOptions) (client.NetworkInspectResult, error)
 	Close() error
 }
 
@@ -116,7 +119,11 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Result{Containers: containers, Images: images}, nil
+	networks, err := collectNetworks(ctx, apiClient)
+	if err != nil {
+		return nil, err
+	}
+	return Result{Containers: containers, Images: images, Networks: networks}, nil
 }
 
 func collectContainers(ctx context.Context, apiClient dockerAPI) ([]Container, error) {
