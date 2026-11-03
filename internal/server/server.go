@@ -92,21 +92,49 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleExport serves the report as a sanitized zip archive, ready to be given
-// to an AI assistant as context of the whole server.
+// to an AI assistant as context of the whole server. The optional "include"
+// parameter ("?include=containers,images", see export.Categories) limits the
+// archive to some categories; without it everything is exported.
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	selected, err := selectedCategories(r)
+	if err != nil {
+		// Before scanning: a bad request must not cost a scan. The message is
+		// plain text and the response has "nosniff".
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	rep := s.report(r.Context())
 
 	// Build the archive in memory so a failure can still produce a proper 500.
 	var buf bytes.Buffer
-	if err := export.Write(&buf, rep); err != nil {
+	if err := export.WriteOnly(&buf, rep, selected); err != nil {
 		http.Error(w, "cannot build export", http.StatusInternalServerError)
 		return
 	}
-	// FileName only contains [A-Za-z0-9._-], so it is safe inside the quotes.
+	// FileNameFor only contains [A-Za-z0-9._-], so it is safe inside the quotes.
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+export.FileName(rep)+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+export.FileNameFor(rep, selected)+`"`)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(buf.Bytes())
+}
+
+// selectedCategories reads the "include" query parameter. No parameter means
+// everything (nil); a parameter that selects nothing is an error, so a click on
+// "export" with every box unchecked never produces an empty archive.
+func selectedCategories(r *http.Request) ([]string, error) {
+	q := r.URL.Query()
+	if !q.Has("include") {
+		return nil, nil
+	}
+	cats, err := export.ParseCategories(q["include"]...)
+	if err != nil {
+		return nil, err
+	}
+	if len(cats) == 0 {
+		return nil, export.ErrNoCategory
+	}
+	return cats, nil
 }
 
 // report returns the cached report or runs a new scan when it has expired.
