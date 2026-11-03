@@ -57,16 +57,15 @@ type Volume struct {
 var anonymousName = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // collectVolumes lists the volumes and links them to the containers that
-// mount them. Sizes come from the disk usage endpoint, which walks the volume
-// directories and can be slow or fail: in that case the volumes are still
-// returned, with unknown size, together with the error.
-func collectVolumes(ctx context.Context, api dockerAPI, containers []Container) ([]Volume, error) {
+// mount them. Sizes come from the disk usage result, nil when that call
+// failed: the volumes are then returned with unknown size.
+func collectVolumes(ctx context.Context, api dockerAPI, containers []Container, du *client.DiskUsageResult) ([]Volume, error) {
 	list, err := api.VolumeList(ctx, client.VolumeListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list volumes: %w", err)
 	}
 
-	usage, usageErr := volumeUsage(ctx, api)
+	usage := volumeUsage(du)
 	mounts := volumeMounts(containers)
 
 	volumes := make([]Volume, 0, len(list.Items))
@@ -82,10 +81,6 @@ func collectVolumes(ctx context.Context, api dockerAPI, containers []Container) 
 		volumes = append(volumes, entry)
 	}
 	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
-
-	if usageErr != nil {
-		return volumes, fmt.Errorf("volume sizes: %w", usageErr)
-	}
 	return volumes, nil
 }
 
@@ -118,10 +113,9 @@ func volumeFromAPI(v volume.Volume) Volume {
 }
 
 // volumeUsage returns size and reference count per volume name.
-func volumeUsage(ctx context.Context, api dockerAPI) (map[string]volume.UsageData, error) {
-	du, err := api.DiskUsage(ctx, client.DiskUsageOptions{Volumes: true, Verbose: true})
-	if err != nil {
-		return nil, err
+func volumeUsage(du *client.DiskUsageResult) map[string]volume.UsageData {
+	if du == nil {
+		return nil
 	}
 	out := make(map[string]volume.UsageData, len(du.Volumes.Items))
 	for _, v := range du.Volumes.Items {
@@ -129,7 +123,7 @@ func volumeUsage(ctx context.Context, api dockerAPI) (map[string]volume.UsageDat
 			out[v.Name] = *v.UsageData
 		}
 	}
-	return out, nil
+	return out
 }
 
 // volumeMounts indexes the volume mounts of every inspected container by

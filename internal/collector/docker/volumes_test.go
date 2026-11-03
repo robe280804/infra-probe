@@ -119,7 +119,7 @@ func TestCollectVolumes_DiskUsageFailureKeepsVolumes(t *testing.T) {
 	api.diskUsageErr = errors.New("df timeout")
 
 	vols, err := collectVolumesFrom(t, api)
-	if err == nil || !strings.Contains(err.Error(), "volume sizes: df timeout") {
+	if err == nil || !strings.Contains(err.Error(), "disk usage: df timeout") {
 		t.Fatalf("error = %v, want the disk usage failure", err)
 	}
 	if len(vols) != 3 {
