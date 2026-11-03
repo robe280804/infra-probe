@@ -98,7 +98,8 @@ func (c *Collector) Collect(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
-	defer apiClient.Close()
+	// Closing a client we only read from cannot meaningfully fail.
+	defer func() { _ = apiClient.Close() }()
 
 	containers, err := collectContainers(ctx, apiClient)
 	if err != nil {
