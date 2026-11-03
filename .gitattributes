@@ -1,0 +1,4 @@
+# One line ending for everyone: LF in the repository and in the working tree,
+# on every OS. Without this, Git on Windows checks files out with CRLF, which
+# makes gofmt (and golangci-lint) report every file as unformatted locally.
+* text=auto eol=lf
