@@ -1,8 +1,11 @@
 package docker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"testing"
 
@@ -18,6 +21,7 @@ type fakeAPI struct {
 	containers     []container.Summary
 	listErr        error
 	inspectFailFor map[string]bool // container IDs whose inspect fails
+	statsFn        func(id string) (container.StatsResponse, error)
 
 	images         []image.Summary
 	imageListErr   error
@@ -38,6 +42,21 @@ func (f *fakeAPI) ContainerInspect(_ context.Context, id string, _ client.Contai
 		ID:     id,
 		Config: &container.Config{User: "app", Env: []string{"DB_PASSWORD=s3cret", "MODE=prod"}},
 	}}, nil
+}
+
+func (f *fakeAPI) ContainerStats(_ context.Context, id string, _ client.ContainerStatsOptions) (client.ContainerStatsResult, error) {
+	var resp container.StatsResponse
+	if f.statsFn != nil {
+		var err error
+		if resp, err = f.statsFn(id); err != nil {
+			return client.ContainerStatsResult{}, err
+		}
+	}
+	body, err := json.Marshal(resp)
+	if err != nil {
+		return client.ContainerStatsResult{}, err
+	}
+	return client.ContainerStatsResult{Body: io.NopCloser(bytes.NewReader(body))}, nil
 }
 
 func (f *fakeAPI) ImageList(context.Context, client.ImageListOptions) (client.ImageListResult, error) {

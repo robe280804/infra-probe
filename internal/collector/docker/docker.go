@@ -36,6 +36,12 @@ type Container struct {
 	// InspectError is set when the inspect call failed for this container
 	// (for example it was removed right after the list call).
 	InspectError string `json:"inspect_error,omitempty"`
+
+	// Stats is a live resource snapshot, only for running containers.
+	Stats *Stats `json:"stats,omitempty"`
+
+	// StatsError is set when reading the stats of a running container failed.
+	StatsError string `json:"stats_error,omitempty"`
 }
 
 // Image holds the facts about a single local image.
@@ -72,6 +78,7 @@ type Result struct {
 type dockerAPI interface {
 	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
 	ContainerInspect(ctx context.Context, containerID string, options client.ContainerInspectOptions) (client.ContainerInspectResult, error)
+	ContainerStats(ctx context.Context, containerID string, options client.ContainerStatsOptions) (client.ContainerStatsResult, error)
 	ImageList(ctx context.Context, options client.ImageListOptions) (client.ImageListResult, error)
 	ImageInspect(ctx context.Context, imageID string, opts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	Close() error
@@ -142,6 +149,9 @@ func collectContainers(ctx context.Context, apiClient dockerAPI) ([]Container, e
 
 		containers = append(containers, entry)
 	}
+
+	// Stats need the inspect data (configured memory limit), so they run last.
+	collectStats(ctx, apiClient, containers)
 	return containers, nil
 }
 
