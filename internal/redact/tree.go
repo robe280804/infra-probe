@@ -103,3 +103,25 @@ func args(list []any) []any {
 	}
 	return out
 }
+
+// Args masks secrets in a command line given as a list of arguments, the way
+// Tree does for the "Cmd" and "Entrypoint" fields of a Docker inspect.
+func Args(list []string) []string {
+	generic := make([]any, len(list))
+	for i, s := range list {
+		generic[i] = s
+	}
+	masked := args(generic)
+	out := make([]string, len(masked))
+	for i, v := range masked {
+		out[i], _ = v.(string)
+	}
+	return out
+}
+
+// Command masks secrets in a shell command written as one string (a cron
+// line, for example): "--password x", "--token=x", "PASSWORD=x"... The words
+// are separated by single spaces in the result.
+func Command(s string) string {
+	return strings.Join(Args(strings.Fields(String(s))), " ")
+}

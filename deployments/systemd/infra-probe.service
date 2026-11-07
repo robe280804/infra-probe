@@ -17,7 +17,9 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+# read-only, not "yes": compose files are often under /home/<user>/..., and the
+# probe must be able to read them (it never writes there).
+ProtectHome=read-only
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
@@ -27,3 +29,12 @@ RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 SystemCallFilter=@system-service
+
+# As an unprivileged user the probe cannot tell which process owns a listening
+# port (it cannot look inside /proc/<pid>/fd of other users), nor read the
+# crontabs of the users: the report says so in its "notes". Both are optional.
+# To see the process of each port, uncomment the two lines below (CAP_SYS_PTRACE
+# is a powerful capability, even though the probe only reads), and replace the
+# empty CapabilityBoundingSet= above:
+#AmbientCapabilities=CAP_SYS_PTRACE
+#CapabilityBoundingSet=CAP_SYS_PTRACE

@@ -70,11 +70,13 @@ func summary(s *summaryData) string {
 		m.GeneratedAt.UTC().Format("2006-01-02 15:04:05"), orDash(m.Version))
 
 	if host, ok := s.results["host"].(map[string]any); ok {
-		b.WriteString("## Host\n\n")
-		for _, k := range sortedKeys(host) {
-			fmt.Fprintf(&b, "- **%s**: %s\n", k, cell(host[k]))
+		// The containers explain some of the listening ports; nil when they
+		// are not part of this export.
+		var containers []map[string]any
+		if d, ok := s.results["docker"].(map[string]any); ok {
+			containers = objects(d["containers"])
 		}
-		b.WriteString("\n")
+		writeHost(&b, host, containers)
 	}
 
 	if len(m.Errors) > 0 {

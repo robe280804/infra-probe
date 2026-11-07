@@ -10,6 +10,7 @@ import { imageList, imageDetail, defaultImageFilters } from "./views/images.js";
 import { networkList, networkDetail, defaultNetworkFilters } from "./views/networks.js";
 import { composeList, composeDetail, defaultComposeFilters } from "./views/compose.js";
 import { daemonPage } from "./views/daemon.js";
+import { hostPage } from "./views/host.js";
 import { exportMenu } from "./views/export-menu.js";
 import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
@@ -54,6 +55,7 @@ const NAV = [
   { section: "networks", label: "Networks", count: (r) => networksOf(r).length },
   { section: "volumes", label: "Volumes", count: (r) => volumesOf(r).length },
   { section: "compose", label: "Compose", count: (r) => composeOf(r).length },
+  { section: "host", label: "Host" },
   { section: "daemon", label: "Docker daemon" },
   { label: "Security rules", soon: true },
 ];
@@ -101,6 +103,9 @@ function renderView(route) {
       break;
     case "compose":
       node = route.id ? composeDetail(state.report, route.id) : composeList(state.report, state.filters.compose);
+      break;
+    case "host":
+      node = hostPage(state.report);
       break;
     case "daemon":
       node = daemonPage(state.report);

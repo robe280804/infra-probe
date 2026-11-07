@@ -292,6 +292,8 @@ func TestEmbeddedUIIsServed(t *testing.T) {
 		{"/views/networks.js", "export", "text/javascript"},
 		{"/views/volumes.js", "export", "text/javascript"},
 		{"/views/daemon.js", "export", "text/javascript"},
+		{"/views/host.js", "export", "text/javascript"},
+		{"/data/host.js", "export", "text/javascript"},
 		{"/views/compose.js", "export", "text/javascript"},
 		{"/data/compose.js", "export", "text/javascript"},
 		{"/data/export.js", "export", "text/javascript"},

@@ -33,6 +33,17 @@ export function fmtNanos(ns) {
   return s >= 1 ? `${s}s` : `${ns / 1e6}ms`;
 }
 
+/** Seconds to a short uptime string: "3d 4h", "2h 15m", "5m". */
+export function fmtUptime(seconds) {
+  if (typeof seconds !== "number" || !isFinite(seconds) || seconds < 0) return "—";
+  const d = Math.floor(seconds / 86400);
+  const hrs = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${hrs}h`;
+  if (hrs > 0) return `${hrs}h ${m}m`;
+  return `${m}m`;
+}
+
 export function fmtList(arr) {
   return Array.isArray(arr) && arr.length ? arr.join(", ") : "—";
 }
