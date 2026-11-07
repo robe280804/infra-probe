@@ -71,3 +71,26 @@ func TestTree_KeepsJSONNumbersExact(t *testing.T) {
 		t.Errorf("number = %#v", got)
 	}
 }
+
+func TestCommand(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"/usr/bin/backup --password hunter2 --dest /mnt", "/usr/bin/backup --password <redacted> --dest /mnt"},
+		{"mysqldump --password=hunter2 db", "mysqldump --password=<redacted> db"},
+		{"curl https://user:pw@example.com/x", "curl https://user:<redacted>@example.com/x"},
+		{"  run   --port   80 ", "run --port 80"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := Command(tt.in); got != tt.want {
+			t.Errorf("Command(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestArgs_StringList(t *testing.T) {
+	got := Args([]string{"app", "--api-key", "k", "--port=80"})
+	want := []string{"app", "--api-key", Mask, "--port=80"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Args = %v, want %v", got, want)
+	}
+}
