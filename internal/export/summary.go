@@ -79,6 +79,19 @@ func summary(s *summaryData) string {
 		writeHost(&b, host, containers)
 	}
 
+	if fw, ok := s.results["firewall"].(map[string]any); ok {
+		host, _ := s.results["host"].(map[string]any)
+		var daemon map[string]any
+		var containers []map[string]any // nil: not exported
+		if d, ok := s.results["docker"].(map[string]any); ok {
+			daemon = mapAt(d, "daemon")
+			if _, present := d["containers"]; present {
+				containers = objects(d["containers"])
+			}
+		}
+		writeFirewall(&b, fw, host, daemon, containers)
+	}
+
 	if len(m.Errors) > 0 {
 		b.WriteString("## Collection errors\n\nThe data below is incomplete:\n\n")
 		for _, k := range sortedKeys(m.Errors) {

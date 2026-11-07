@@ -2,7 +2,8 @@
 // GET /api/export?include=... (see export.Categories in the Go code).
 
 export const EXPORT_CATEGORIES = [
-  { key: "host", label: "Host", hint: "Host name, operating system, CPUs" },
+  { key: "host", label: "Host", hint: "System, memory, disks, listening ports, services, cron" },
+  { key: "firewall", label: "Firewall", hint: "ufw, iptables and nftables rules, ports reachable from outside" },
   { key: "daemon", label: "Docker daemon", hint: "Version, drivers, registries, daemon.json, disk usage" },
   { key: "compose", label: "Compose projects", hint: "Projects, services and the sanitized compose files" },
   { key: "containers", label: "Containers", hint: "Full configuration, mounts, ports, live statistics" },
