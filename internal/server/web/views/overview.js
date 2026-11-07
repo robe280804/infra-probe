@@ -1,7 +1,7 @@
 // Overview page: key numbers, containers needing attention, top memory users.
 
 import { h } from "../lib/dom.js";
-import { fmtBytes } from "../lib/format.js";
+import { fmtBytes, fmtUptime } from "../lib/format.js";
 import { badge, scrollCard, tile, kv, table } from "../lib/ui.js";
 import { rankedBars } from "../lib/charts.js";
 import { containersOf, imagesOf, networksOf, volumesOf, composeOf, containerHref } from "../data/report.js";
@@ -58,7 +58,19 @@ export function overview(report) {
           ? h("div", { class: "empty", text: "No running containers with stats." })
           : rankedBars(topMemory.map((c) => ({ label: c.name, value: c.stats.memory_usage, href: containerHref(c) })), fmtBytes),
       ),
-      scrollCard("Host", kv(Object.entries(host).map(([k, v]) => [k, String(v)]))),
+      scrollCard(
+        "Host",
+        kv([
+          ["Hostname", host.hostname],
+          ["System", host.system?.pretty_name ?? host.os],
+          ["Kernel", host.system?.kernel],
+          ["Uptime", host.system ? fmtUptime(host.system.uptime_seconds) : null],
+          ["CPUs", host.num_cpu === undefined ? null : String(host.num_cpu)],
+          ["Memory", host.memory ? `${fmtBytes(host.memory.available)} available of ${fmtBytes(host.memory.total)}` : null],
+          ["Ports listening", host.listeners ? String(host.listeners.length) : null],
+        ]),
+        link("#/host", "Host details →"),
+      ),
     ),
   );
 }
