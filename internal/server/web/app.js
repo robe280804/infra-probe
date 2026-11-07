@@ -11,6 +11,7 @@ import { networkList, networkDetail, defaultNetworkFilters } from "./views/netwo
 import { composeList, composeDetail, defaultComposeFilters } from "./views/compose.js";
 import { daemonPage } from "./views/daemon.js";
 import { hostPage } from "./views/host.js";
+import { firewallPage } from "./views/firewall.js";
 import { exportMenu } from "./views/export-menu.js";
 import { volumeList, volumeDetail, defaultVolumeFilters } from "./views/volumes.js";
 
@@ -57,7 +58,7 @@ const NAV = [
   { section: "compose", label: "Compose", count: (r) => composeOf(r).length },
   { section: "host", label: "Host" },
   { section: "daemon", label: "Docker daemon" },
-  { label: "Security rules", soon: true },
+  { section: "security", label: "Security rules" },
 ];
 
 function renderNav(route) {
@@ -109,6 +110,9 @@ function renderView(route) {
       break;
     case "daemon":
       node = daemonPage(state.report);
+      break;
+    case "security":
+      node = firewallPage(state.report);
       break;
     case "volumes":
       node = route.id ? volumeDetail(state.report, route.id) : volumeList(state.report, state.filters.volumes);
