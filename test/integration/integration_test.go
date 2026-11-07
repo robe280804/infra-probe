@@ -111,7 +111,24 @@ func TestBinary_ScanProducesValidReport(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("scan output is not valid JSON: %v\n%s", err, stdout.String())
 	}
-	if _, ok := report.Results["host"]; !ok {
-		t.Errorf("host section missing: results=%v errors=%v", report.Results, report.Errors)
+	rawHost, ok := report.Results["host"]
+	if !ok {
+		t.Fatalf("host section missing: results=%v errors=%v", report.Results, report.Errors)
+	}
+
+	// On Linux the host section must carry the system details, not just the
+	// name: that is what the collector exists for.
+	if runtime.GOOS == "linux" {
+		var host struct {
+			System      json.RawMessage   `json:"system"`
+			Memory      json.RawMessage   `json:"memory"`
+			Filesystems []json.RawMessage `json:"filesystems"`
+		}
+		if err := json.Unmarshal(rawHost, &host); err != nil {
+			t.Fatal(err)
+		}
+		if len(host.System) == 0 || len(host.Memory) == 0 || len(host.Filesystems) == 0 {
+			t.Errorf("host details missing on Linux: %s", rawHost)
+		}
 	}
 }
