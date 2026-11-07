@@ -38,3 +38,17 @@ SystemCallFilter=@system-service
 # empty CapabilityBoundingSet= above:
 #AmbientCapabilities=CAP_SYS_PTRACE
 #CapabilityBoundingSet=CAP_SYS_PTRACE
+
+# The firewall rules (iptables, nftables) can only be listed with CAP_NET_ADMIN;
+# without it the report shows ufw from its configuration files and says the
+# rest is missing. CAP_NET_ADMIN also allows changing the rules: the probe only
+# runs iptables-save, ip6tables-save and "nft list ruleset", but the capability
+# itself is not read-only. To grant it, uncomment the three lines below and
+# replace CapabilityBoundingSet= above (to grant CAP_SYS_PTRACE as well, write
+# both capabilities, space separated, on one AmbientCapabilities= and one
+# CapabilityBoundingSet= line). The tools talk to the kernel over netlink;
+# iptables-legacy also needs CAP_NET_RAW and AF_INET.
+#AmbientCapabilities=CAP_NET_ADMIN
+#CapabilityBoundingSet=CAP_NET_ADMIN
+#RestrictAddressFamilies=AF_UNIX AF_NETLINK
+# The ufw rule files (/etc/ufw/user.rules) stay readable by root only.

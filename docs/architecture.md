@@ -7,6 +7,7 @@ collects facts about it and prints a JSON report.
 cmd/infra-probe          entry point: CLI parsing and wiring only
 internal/collector       Collector interface (one implementation per data source)
 internal/collector/host    system, memory, disks, listening ports, systemd, cron
+internal/collector/firewall  ufw configuration, iptables / ip6tables / nftables rules
 internal/collector/docker  daemon setup, containers, images, networks, volumes, Compose projects (grouped from labels)
 internal/report          runs collectors, assembles and encodes the report
 internal/export          sanitized zip archive of a report (AI context export, by category)
@@ -34,10 +35,11 @@ data/             knowledge about the report
   findings.js       security/configuration facts derived from inspect data
   daemon.js         configuration notes derived from the daemon data
   host.js           host findings, ports traced to the containers behind them
+  firewall.js       ports reachable from the network and the firewall verdict on each
   compose.js        ports, mounts, variable names and flags of a compose service
 views/            one file per page
   shared.js         page frame, links, "not found"
-  overview.js  containers.js  container-detail.js  images.js  networks.js  volumes.js  daemon.js  compose.js  host.js
+  overview.js  containers.js  container-detail.js  images.js  networks.js  volumes.js  daemon.js  compose.js  host.js  firewall.js
 ```
 
 Dependencies only point downwards: `views` use `data` and `lib`; `data` and `lib`
@@ -58,6 +60,28 @@ for an empty list. `/proc/net` lists the sockets of the network namespace, but t
 owning process is only visible in the probe's own PID namespace: sockets held by a
 container or a relay show without process. A mount that does not answer (a hung NFS
 share) times out after 5 seconds instead of blocking the scan.
+
+## Firewall collector
+
+ufw is read from its files: `/etc/ufw/ufw.conf` (enabled at boot) and
+`/etc/default/ufw` (default policies) are world readable, `/etc/ufw/user*.rules`
+are root only; the rules are taken from the `### tuple ###` comments ufw writes
+above each rule, which hold the rule as the user typed it. The kernel rules come
+from `iptables-save`, `ip6tables-save` and `nft list ruleset`, the only other
+commands the probe runs (an allow list in the package refuses anything else).
+They need `CAP_NET_ADMIN`: the collector reads `CapEff` in `/proc/self/status`
+and, without the capability, does not start them at all and writes a note. A
+command that is not installed is skipped; one the kernel refuses (iptables-legacy
+also wants `CAP_NET_RAW`) is a note, any other failure an error.
+
+The "reachable from outside" analysis crosses three sections of the report, so it
+is not done by the collector: it runs in `web/data/firewall.js` for the dashboard
+and in `export/summary_firewall.go` for `SUMMARY.md` (keep the two in step). A host
+port is judged by ufw (first matching rule, else the default policy) or, without
+ufw, by whether the INPUT path has any rule. A Docker-published port is judged by
+the `DOCKER-USER` chain (or the forward chains of your own nftables tables with the
+nftables backend), because Docker's NAT sends it through FORWARD, where ufw rules
+do not apply; with `"iptables": false` or a rootless daemon it is a plain host port.
 
 ## Design rules
 
@@ -108,7 +132,7 @@ and `serve` (`/api/report`, `/api/export`) must not output any of them.
 {
   "version": "1.2.3",
   "generated_at": "2026-11-03T10:00:00Z",
-  "results": { "host": {}, "docker": { "compose": [], "daemon": {}, "containers": [], "images": [], "networks": [], "volumes": [] } },
+  "results": { "host": {}, "firewall": {}, "docker": { "compose": [], "daemon": {}, "containers": [], "images": [], "networks": [], "volumes": [] } },
   "errors": { "<collector>": "<message>" }
 }
 ```

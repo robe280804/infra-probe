@@ -50,15 +50,15 @@ func TestParseCategories(t *testing.T) {
 		})
 	}
 
-	_, err := ParseCategories("containers,firewall")
-	if err == nil || !strings.Contains(err.Error(), `unknown category "firewall"`) || !strings.Contains(err.Error(), "volumes") {
+	_, err := ParseCategories("containers,kubernetes")
+	if err == nil || !strings.Contains(err.Error(), `unknown category "kubernetes"`) || !strings.Contains(err.Error(), "volumes") {
 		t.Errorf("unknown category error = %v, want it to name the category and list the valid ones", err)
 	}
 }
 
 func TestWithout(t *testing.T) {
 	got, err := Without("volumes", "images")
-	if err != nil || !reflect.DeepEqual(got, []string{"host", "daemon", "compose", "containers", "networks"}) {
+	if err != nil || !reflect.DeepEqual(got, []string{"host", "firewall", "daemon", "compose", "containers", "networks"}) {
 		t.Errorf("Without = (%v, %v)", got, err)
 	}
 	if got, err := Without(); err != nil || len(got) != len(Categories) {
@@ -81,7 +81,7 @@ func TestSelect(t *testing.T) {
 		{"neither", "", "", nil, false},
 		{"blank options", "  ", " ", nil, false},
 		{"include", "images,containers", "", []string{"containers", "images"}, false},
-		{"exclude", "", "host,daemon,compose,containers,images", []string{"networks", "volumes"}, false},
+		{"exclude", "", "host,firewall,daemon,compose,containers,images", []string{"networks", "volumes"}, false},
 		{"both", "images", "volumes", nil, true},
 		{"include only separators", ",", "", nil, true},
 		{"exclude everything", "", strings.Join(Categories, ","), nil, true},
@@ -225,7 +225,7 @@ func TestWriteOnly_FullSelectionEqualsWrite(t *testing.T) {
 }
 
 func TestWriteOnly_InvalidSelectionWritesNothing(t *testing.T) {
-	for name, sel := range map[string][]string{"empty": {}, "unknown": {"containers", "firewall"}} {
+	for name, sel := range map[string][]string{"empty": {}, "unknown": {"containers", "kubernetes"}} {
 		var buf bytes.Buffer
 		err := WriteOnly(&buf, sampleReport(), sel)
 		if err == nil {

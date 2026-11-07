@@ -6,6 +6,7 @@ import { badge, scrollCard, tile, kv, table } from "../lib/ui.js";
 import { rankedBars } from "../lib/charts.js";
 import { containersOf, imagesOf, networksOf, volumesOf, composeOf, containerHref } from "../data/report.js";
 import { findings } from "../data/findings.js";
+import { firewallOf, exposures } from "../data/firewall.js";
 import { link, page } from "./shared.js";
 
 export function overview(report) {
@@ -16,6 +17,7 @@ export function overview(report) {
   withFindings.sort((a, b) => b.f.filter((x) => x.level === "bad").length - a.f.filter((x) => x.level === "bad").length);
 
   const host = report?.results?.host ?? {};
+  const reachable = firewallOf(report) ? exposures(report, containers) : null;
   const topMemory = running
     .filter((c) => c.stats)
     .sort((a, b) => b.stats.memory_usage - a.stats.memory_usage)
@@ -35,6 +37,9 @@ export function overview(report) {
       tile("Volumes", String(volumesOf(report).length), `${volumesOf(report).filter((v) => v.containers.length === 0).length} unused`),
       tile("Unused images", String(images.filter((i) => i.containers === 0).length), "not used by any container"),
       tile("With findings", String(withFindings.length), "containers to review"),
+      reachable
+        ? tile("Reachable ports", String(reachable.length), link("#/security", `${reachable.filter((r) => r.verdict.level === "bad").length} bypass ufw →`))
+        : null,
     ),
     h(
       "div",

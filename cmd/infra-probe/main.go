@@ -1,6 +1,7 @@
-// Command infra-probe inspects the server it runs on (Docker daemon, containers,
-// images, networks, volumes, Compose projects) and reports what it finds, as
-// JSON, as a web dashboard or as a zip archive for an AI assistant.
+// Command infra-probe inspects the server it runs on (host, firewall, Docker
+// daemon, containers, images, networks, volumes, Compose projects) and reports
+// what it finds, as JSON, as a web dashboard or as a zip archive for an AI
+// assistant.
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 
 	"github.com/netseven/infra-probe/internal/collector"
 	"github.com/netseven/infra-probe/internal/collector/docker"
+	"github.com/netseven/infra-probe/internal/collector/firewall"
 	"github.com/netseven/infra-probe/internal/collector/host"
 	"github.com/netseven/infra-probe/internal/export"
 	"github.com/netseven/infra-probe/internal/report"
@@ -47,6 +49,7 @@ func main() {
 func collectors() []collector.Collector {
 	return []collector.Collector{
 		host.New(),
+		firewall.New(),
 		docker.New(),
 	}
 }

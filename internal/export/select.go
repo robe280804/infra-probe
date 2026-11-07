@@ -9,6 +9,7 @@ import (
 // The parts of a report that can be exported separately.
 const (
 	CategoryHost       = "host"
+	CategoryFirewall   = "firewall"
 	CategoryDaemon     = "daemon"
 	CategoryCompose    = "compose"
 	CategoryContainers = "containers"
@@ -19,7 +20,7 @@ const (
 
 // Categories lists every category, in the order used by the export.
 var Categories = []string{
-	CategoryHost, CategoryDaemon, CategoryCompose,
+	CategoryHost, CategoryFirewall, CategoryDaemon, CategoryCompose,
 	CategoryContainers, CategoryImages, CategoryNetworks, CategoryVolumes,
 }
 
@@ -148,6 +149,10 @@ func (s selection) filter(root map[string]any) {
 		switch name {
 		case "host":
 			if !s.set[CategoryHost] {
+				delete(results, name)
+			}
+		case "firewall":
+			if !s.set[CategoryFirewall] {
 				delete(results, name)
 			}
 		case "docker":
