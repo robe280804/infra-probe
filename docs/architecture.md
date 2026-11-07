@@ -6,7 +6,7 @@ collects facts about it and prints a JSON report.
 ```
 cmd/infra-probe          entry point: CLI parsing and wiring only
 internal/collector       Collector interface (one implementation per data source)
-internal/collector/host    host facts
+internal/collector/host    system, memory, disks, listening ports, systemd, cron
 internal/collector/docker  daemon setup, containers, images, networks, volumes, Compose projects (grouped from labels)
 internal/report          runs collectors, assembles and encodes the report
 internal/export          sanitized zip archive of a report (AI context export, by category)
@@ -33,10 +33,11 @@ data/             knowledge about the report
   report.js         accessors over the report JSON and page links
   findings.js       security/configuration facts derived from inspect data
   daemon.js         configuration notes derived from the daemon data
+  host.js           host findings, ports traced to the containers behind them
   compose.js        ports, mounts, variable names and flags of a compose service
 views/            one file per page
   shared.js         page frame, links, "not found"
-  overview.js  containers.js  container-detail.js  images.js  networks.js  volumes.js  daemon.js  compose.js
+  overview.js  containers.js  container-detail.js  images.js  networks.js  volumes.js  daemon.js  compose.js  host.js
 ```
 
 Dependencies only point downwards: `views` use `data` and `lib`; `data` and `lib`
@@ -44,6 +45,19 @@ never import a view. Report data is untrusted, so it only reaches the page throu
 `textContent`; a Go test fails if any script uses `innerHTML` and similar sinks.
 
 To add a page: create `views/<name>.js`, add a `NAV` entry and a `case` in `app.js`.
+
+## Host collector
+
+On Linux it reads `/proc`, `/etc` and `/var` through an `fs.FS` (`os.DirFS("/")`), so
+the parsers are tested with fake files on any OS, plus `readlink` and `statfs` hooks
+and one command, `systemctl`, with fixed read-only arguments. Each part (system,
+memory, disks, ports, systemd, cron) is independent: a failure is reported with the
+others and the rest is kept. What the probe is not allowed to see (processes of other
+users, users' crontabs) is not an error: it goes in `notes`, so a gap is not mistaken
+for an empty list. `/proc/net` lists the sockets of the network namespace, but the
+owning process is only visible in the probe's own PID namespace: sockets held by a
+container or a relay show without process. A mount that does not answer (a hung NFS
+share) times out after 5 seconds instead of blocking the scan.
 
 ## Design rules
 

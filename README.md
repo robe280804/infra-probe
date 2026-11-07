@@ -26,6 +26,18 @@ only; there is no authentication, so do not expose it to the network (a warning
 is printed if you try). To reach it on a remote server use an SSH tunnel:
 `ssh -L 8080:127.0.0.1:8080 user@server`.
 
+### What it collects
+
+- **Host** (Linux): distribution, kernel, uptime, load, memory and swap, disks with
+  usage, listening ports with the owning process, systemd services and timers, cron
+  jobs. On other systems only the basics.
+- **Docker**: daemon setup, containers, images, networks, volumes, Compose projects.
+
+Run as an unprivileged user, the probe cannot see which process owns a port (it
+needs root or `CAP_SYS_PTRACE` for processes of other users) nor read the users'
+crontabs: the report says so in the host `notes`. See the comments in
+`deployments/systemd/infra-probe.service`.
+
 ### Export for AI
 
 ```sh
